@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "claude-code-thy"
+version = "0.1.0"
+description = "Python-first Claude Code remake with a high-fidelity terminal UI."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "rich>=13.7,<15",
+  "textual>=0.58,<1",
+  "typer>=0.12,<1",
+]
+
+[project.scripts]
+claude-code-thy = "claude_code_thy.cli:run"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"claude_code_thy.ui" = ["*.tcss"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
