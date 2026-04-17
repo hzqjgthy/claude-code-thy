@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 
+from claude_code_thy.mcp.serializers import serialize_mcp_tool_result
 from claude_code_thy.mcp.types import McpToolDefinition
 from claude_code_thy.mcp.utils import run_async_sync
 from claude_code_thy.tools.base import PermissionResult, Tool, ToolContext, ToolError, ToolResult
@@ -21,6 +22,9 @@ class MCPTool(Tool):
 
     def is_concurrency_safe(self) -> bool:
         return self.is_read_only()
+
+    def original_name(self) -> str:
+        return str(self.definition.annotations.get("original_name", self.name))
 
     def search_behavior(self) -> dict[str, bool]:
         return {
@@ -60,14 +64,14 @@ class MCPTool(Tool):
             result = run_async_sync(
                 context.services.mcp_manager.call_tool(
                     self.server_name,
-                    self.definition.annotations.get("original_name", self.name) if isinstance(self.definition.annotations, dict) else self.name,
+                    self.original_name(),
                     input_data,
                 ),
                 timeout=timeout_s,
             )
         except Exception as error:
             raise ToolError(str(error)) from error
-        output_text, structured = _serialize_mcp_tool_result(result)
+        output_text, structured = serialize_mcp_tool_result(result)
         return ToolResult(
             tool_name=self.name,
             ok=True,
@@ -88,60 +92,8 @@ class MCPTool(Tool):
         )
 
 
-def _serialize_mcp_tool_result(result: object) -> tuple[str, object]:
-    if result is None:
-        return "", {}
-    content = getattr(result, "content", None)
-    if isinstance(content, str):
-        return content, {"content": content}
-    if isinstance(content, list):
-        text_parts: list[str] = []
-        normalized: list[object] = []
-        for item in content:
-            entry = _to_jsonable(item)
-            normalized.append(entry)
-            if isinstance(entry, dict) and isinstance(entry.get("text"), str):
-                text_parts.append(str(entry["text"]))
-            else:
-                text = getattr(item, "text", None)
-                if isinstance(text, str):
-                    text_parts.append(text)
-        return "\n".join(part for part in text_parts if part.strip()), {"content": normalized}
-    if isinstance(result, dict):
-        normalized = _to_jsonable(result)
-        return json.dumps(normalized, ensure_ascii=False, indent=2), normalized
-    normalized = _to_jsonable(result)
-    if isinstance(normalized, (dict, list)):
-        return json.dumps(normalized, ensure_ascii=False, indent=2), normalized
-    return str(normalized), {"content": str(normalized)}
-
-
 def _interactive_mcp_timeout_seconds(context: ToolContext) -> float:
     if context.services is None:
         return 30.0
     timeout_ms = context.services.settings.mcp.tool_call_timeout_ms
     return max(min(timeout_ms / 1000, 30.0), 1.0)
-
-
-def _to_jsonable(value: object) -> object:
-    if value is None or isinstance(value, (str, int, float, bool)):
-        return value
-    if isinstance(value, dict):
-        return {str(key): _to_jsonable(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple, set)):
-        return [_to_jsonable(item) for item in value]
-    model_dump = getattr(value, "model_dump", None)
-    if callable(model_dump):
-        try:
-            return _to_jsonable(model_dump())
-        except Exception:
-            pass
-    if hasattr(value, "__dict__"):
-        data = {
-            key: item
-            for key, item in vars(value).items()
-            if not key.startswith("_")
-        }
-        if data:
-            return _to_jsonable(data)
-    return str(value)

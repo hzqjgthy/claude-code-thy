@@ -19,13 +19,11 @@ from claude_code_thy.models import ChatMessage, SessionTranscript
 from claude_code_thy.providers.base import Provider
 from claude_code_thy.runtime import ConversationRuntime
 from claude_code_thy.session.store import SessionStore
-from claude_code_thy.tools import ToolEvent
 from claude_code_thy.ui.tool_views import (
     build_permission_prompt_message,
     build_task_notification_message,
     build_tool_call_message,
     build_tool_result_message,
-    tool_label,
     truncate_single_line,
 )
 
@@ -35,6 +33,7 @@ def format_cwd(path: str) -> str:
     if path.startswith(home):
         return path.replace(home, "~", 1)
     return path
+
 
 class ClaudeCodeThyApp(App[None]):
     CSS_PATH = "styles.tcss"
@@ -113,30 +112,6 @@ class ClaudeCodeThyApp(App[None]):
                 tool_event_handler=None,
             )
         )
-
-    def _handle_tool_event(self, event: ToolEvent) -> None:
-        label = tool_label(event.tool_name)
-        if event.phase == "queued":
-            self._set_tool_status(f"{label}: queued")
-            return
-        if event.phase == "running":
-            self._set_tool_status(f"{label}: {truncate_single_line(event.summary)}")
-            return
-        if event.phase == "progress":
-            detail = truncate_single_line(event.detail) if event.detail else ""
-            if detail:
-                self._set_tool_status(f"{label}: {truncate_single_line(event.summary)} · {detail}")
-            else:
-                self._set_tool_status(f"{label}: {truncate_single_line(event.summary)}")
-            return
-        if event.phase == "error":
-            self._set_tool_status(f"{label}: error")
-            return
-        if event.phase == "permission":
-            self._set_tool_status(f"{label}: waiting for approval")
-            return
-        if event.phase == "result":
-            self._set_tool_status(f"{label}: done")
 
     def _render_hero(self) -> None:
         self.query_one("#hero", Static).update(self._build_hero_panel())

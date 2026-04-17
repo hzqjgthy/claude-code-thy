@@ -5,12 +5,11 @@ import json
 from pathlib import Path
 from typing import Iterable
 
+from claude_code_thy.mcp.names import build_mcp_tool_name, build_prompt_command_name
 from claude_code_thy.mcp.prompts import (
-    build_prompt_command_name,
     parse_prompt_arguments,
     render_prompt_result,
 )
-from claude_code_thy.mcp.string_utils import build_mcp_tool_name
 from claude_code_thy.mcp.utils import run_async_sync
 from claude_code_thy.models import SessionTranscript
 from claude_code_thy.permissions import PermissionRequest

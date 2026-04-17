@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-import re
+from .names import normalize_name_for_mcp
 
 
-def normalize_name_for_mcp(name: str) -> str:
-    collapsed = re.sub(r"[^a-zA-Z0-9]+", "_", name.strip())
-    collapsed = re.sub(r"_+", "_", collapsed).strip("_")
-    return collapsed.lower() or "mcp"
+__all__ = ["normalize_name_for_mcp"]

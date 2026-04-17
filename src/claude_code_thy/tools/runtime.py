@@ -3,8 +3,12 @@ from __future__ import annotations
 import copy
 from pathlib import Path
 
-from claude_code_thy.mcp.normalization import normalize_name_for_mcp
-from claude_code_thy.mcp.string_utils import build_mcp_tool_name
+from claude_code_thy.mcp.names import (
+    build_mcp_tool_name,
+    is_normalized_mcp_name_match,
+    matching_server_names,
+    parse_dynamic_mcp_name,
+)
 from claude_code_thy.mcp.utils import run_async_sync
 from claude_code_thy.models import SessionTranscript
 from claude_code_thy.services import ToolServices, build_tool_services
@@ -260,12 +264,7 @@ class ToolRuntime:
         if tool is not None:
             return tool
         if tool_name.startswith("mcp__"):
-            dynamic = self._resolve_mcp_tool(session, tool_name)
-            if dynamic is not None:
-                return dynamic
-        for dynamic in self._dynamic_tools_for_session(session):
-            if dynamic.name == tool_name:
-                return dynamic
+            return self._resolve_mcp_tool(session, tool_name)
         return None
 
     def _resolve_mcp_tool(self, session: SessionTranscript, tool_name: str) -> Tool | None:
@@ -273,22 +272,19 @@ class ToolRuntime:
         if context.services is None:
             return None
         manager = context.services.mcp_manager
-        server_name, normalized_tool_name = self._parse_mcp_tool_name(tool_name)
+        server_name, normalized_tool_name = parse_dynamic_mcp_name(tool_name)
         if not server_name or not normalized_tool_name:
             return None
 
         configs_fn = getattr(manager, "configs", None)
         configs = configs_fn() if callable(configs_fn) else {}
+        cached_tools = manager.cached_tools()
         available_servers = set(configs)
-        available_servers.update(manager.cached_tools())
-        candidate_servers = [
-            actual_name
-            for actual_name in available_servers
-            if normalize_name_for_mcp(actual_name) == server_name
-        ]
+        available_servers.update(cached_tools)
+        candidate_servers = matching_server_names(available_servers, server_name)
         for actual_name in candidate_servers:
-            for definition in manager.cached_tools().get(actual_name, []):
-                if normalize_name_for_mcp(definition.name) != normalized_tool_name:
+            for definition in cached_tools.get(actual_name, []):
+                if not is_normalized_mcp_name_match(definition.name, normalized_tool_name):
                     continue
                 wrapped = MCPTool(actual_name, definition)
                 wrapped.name = build_mcp_tool_name(actual_name, definition.name)
@@ -300,21 +296,12 @@ class ToolRuntime:
             except Exception:
                 continue
             for definition in definitions:
-                if normalize_name_for_mcp(definition.name) != normalized_tool_name:
+                if not is_normalized_mcp_name_match(definition.name, normalized_tool_name):
                     continue
                 wrapped = MCPTool(actual_name, definition)
                 wrapped.name = build_mcp_tool_name(actual_name, definition.name)
                 return wrapped
         return None
-
-    def _parse_mcp_tool_name(self, tool_name: str) -> tuple[str, str]:
-        if not tool_name.startswith("mcp__"):
-            return "", ""
-        suffix = tool_name[5:]
-        if "__" not in suffix:
-            return "", ""
-        server_name, normalized_tool_name = suffix.split("__", 1)
-        return server_name.strip(), normalized_tool_name.strip()
 
     def _dynamic_tools_for_session(self, session: SessionTranscript) -> list[Tool]:
         context = self._build_context(session, None)

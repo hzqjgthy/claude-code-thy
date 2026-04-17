@@ -77,37 +77,14 @@ class QueryEngine:
                     event_handler=tool_event_handler,
                 )
             except PermissionRequiredError as error:
-                set_pending_permission(
+                return self._pause_for_permission(
                     session,
-                    error.request,
-                    source_type="tool_call",
+                    error,
                     tool_name=tool_name,
                     input_data=input_data,
-                    original_input=(
-                        error.original_input if isinstance(error.original_input, dict) else input_data
-                    ),
-                    user_modified=error.user_modified,
                     tool_use_id=tool_use_id,
+                    tool_event_handler=tool_event_handler,
                 )
-                if tool_event_handler is not None:
-                    tool_event_handler(
-                        ToolEvent(
-                            tool_name=tool_name,
-                            phase="permission",
-                            summary=error.request.reason or f"{tool_name} 需要权限确认",
-                            metadata=error.request.to_dict(),
-                        )
-                    )
-                session.add_message(
-                    "assistant",
-                    error.request.prompt_text(),
-                    metadata={
-                        "ui_kind": "permission_prompt",
-                        "pending_permission": error.request.to_dict(),
-                    },
-                )
-                self.session_store.save(session)
-                return session
             except ToolError as error:
                 self._append_tool_error(
                     session,
@@ -204,37 +181,14 @@ class QueryEngine:
                         event_handler=tool_event_handler,
                     )
                 except PermissionRequiredError as error:
-                    set_pending_permission(
+                    return self._pause_for_permission(
                         session,
-                        error.request,
-                        source_type="tool_call",
+                        error,
                         tool_name=call.name,
                         input_data=call.input,
-                        original_input=(
-                            error.original_input if isinstance(error.original_input, dict) else call.input
-                        ),
-                        user_modified=error.user_modified,
                         tool_use_id=call.id,
+                        tool_event_handler=tool_event_handler,
                     )
-                    if tool_event_handler is not None:
-                        tool_event_handler(
-                            ToolEvent(
-                                tool_name=call.name,
-                                phase="permission",
-                                summary=error.request.reason or f"{call.name} 需要权限确认",
-                                metadata=error.request.to_dict(),
-                            )
-                        )
-                    session.add_message(
-                        "assistant",
-                        error.request.prompt_text(),
-                        metadata={
-                            "ui_kind": "permission_prompt",
-                            "pending_permission": error.request.to_dict(),
-                        },
-                    )
-                    self.session_store.save(session)
-                    return session
                 except ToolError as error:
                     result_text = f"工具 `{call.name}` 执行失败：{error}"
                     if tool_event_handler is not None:
@@ -269,6 +223,48 @@ class QueryEngine:
                     return session
 
         session.add_message("assistant", "工具调用轮次超出限制，已停止自动执行。")
+        self.session_store.save(session)
+        return session
+
+    def _pause_for_permission(
+        self,
+        session: SessionTranscript,
+        error: PermissionRequiredError,
+        *,
+        tool_name: str,
+        input_data: dict[str, object],
+        tool_use_id: str | None,
+        tool_event_handler: ToolEventHandler | None,
+    ) -> SessionTranscript:
+        set_pending_permission(
+            session,
+            error.request,
+            source_type="tool_call",
+            tool_name=tool_name,
+            input_data=input_data,
+            original_input=(
+                error.original_input if isinstance(error.original_input, dict) else input_data
+            ),
+            user_modified=error.user_modified,
+            tool_use_id=tool_use_id,
+        )
+        if tool_event_handler is not None:
+            tool_event_handler(
+                ToolEvent(
+                    tool_name=tool_name,
+                    phase="permission",
+                    summary=error.request.reason or f"{tool_name} 需要权限确认",
+                    metadata=error.request.to_dict(),
+                )
+            )
+        session.add_message(
+            "assistant",
+            error.request.prompt_text(),
+            metadata={
+                "ui_kind": "permission_prompt",
+                "pending_permission": error.request.to_dict(),
+            },
+        )
         self.session_store.save(session)
         return session
 

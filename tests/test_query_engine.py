@@ -1,7 +1,10 @@
 import asyncio
 
+from claude_code_thy.mcp.types import McpToolDefinition
+from claude_code_thy.models import SessionTranscript
 from claude_code_thy.providers.base import Provider, ProviderResponse, ToolCallRequest
 from claude_code_thy.query_engine import QueryEngine
+from claude_code_thy.runtime import ConversationRuntime
 from claude_code_thy.session.store import SessionStore
 from claude_code_thy.tools import ToolRuntime, build_builtin_tools
 
@@ -80,13 +83,6 @@ def test_query_engine_runs_tool_loop(tmp_path):
     assert roles == ["user", "assistant", "tool", "assistant"]
     assert "tool loop content" in updated.messages[2].text
     assert updated.messages[-1].text == "我已经读取了文件内容。"
-import asyncio
-
-from claude_code_thy.models import SessionTranscript
-from claude_code_thy.providers.base import Provider, ProviderResponse
-from claude_code_thy.runtime import ConversationRuntime
-from claude_code_thy.session.store import SessionStore
-from claude_code_thy.mcp.types import McpToolDefinition
 
 
 class DummyProvider(Provider):
