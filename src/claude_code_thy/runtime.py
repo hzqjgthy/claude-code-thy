@@ -97,6 +97,20 @@ class ConversationRuntime:
                 prompt,
                 event_handler=tool_event_handler,
             )
+            if outcome.submit_prompt is not None:
+                original_model = session.model
+                if outcome.model_override:
+                    session.model = outcome.model_override
+                session = await self.query_engine.submit(
+                    outcome.session,
+                    outcome.submit_prompt,
+                    tool_event_handler=tool_event_handler,
+                )
+                if outcome.model_override:
+                    session.model = original_model
+                    self.session_store.save(session)
+                self._append_task_notifications(session)
+                return CommandOutcome(session=session, message_added=True)
             self._append_task_notifications(outcome.session)
             return outcome
 

@@ -3,11 +3,15 @@ from __future__ import annotations
 import json
 import subprocess
 
+from .auth import get_oauth_authorization_header
 from .types import McpServerConfig
 
 
 def get_server_headers(config: McpServerConfig) -> dict[str, str]:
-    headers = dict(config.headers)
+    headers = {
+        **get_oauth_authorization_header(config),
+        **dict(config.headers),
+    }
     if not config.headers_helper:
         return headers
     try:

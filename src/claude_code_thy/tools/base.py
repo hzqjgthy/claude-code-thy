@@ -54,6 +54,7 @@ class RuntimeSessionState:
     read_file_state: dict[str, FileReadState] = field(default_factory=dict)
     services: ToolServices | None = None
     skill_dirs: set[str] = field(default_factory=set)
+    touched_paths: set[str] = field(default_factory=set)
     approved_permissions: set[str] = field(default_factory=set)
 
 
@@ -258,6 +259,10 @@ class ToolContext:
     def skill_dirs(self) -> set[str]:
         return self.state.skill_dirs
 
+    @property
+    def touched_paths(self) -> set[str]:
+        return self.state.touched_paths
+
     def emit(
         self,
         tool_name: str,
@@ -284,6 +289,7 @@ class ToolContext:
             return ()
         result = self.services.skill_manager.discover_for_paths(paths)
         self.state.skill_dirs.update(result.discovered_dirs)
+        self.state.touched_paths.update(str(path.resolve()) for path in paths)
         return result.discovered_dirs
 
 
@@ -579,6 +585,10 @@ class Tool(ABC):
             concurrency_safe=self.is_concurrency_safe(),
             search_behavior=self.search_behavior(),
         )
+
+    def to_spec_for_context(self, context: ToolContext | None = None) -> ToolSpec:
+        _ = context
+        return self.to_spec()
 
     def is_read_only(self) -> bool:
         return False

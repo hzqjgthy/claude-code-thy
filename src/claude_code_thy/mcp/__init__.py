@@ -12,10 +12,12 @@ from .names import (
     normalize_name_for_mcp,
     parse_dynamic_mcp_name,
 )
+from .runtime import McpRuntimeManager
 from .types import McpServerConfig, McpServerConnection
 
 __all__ = [
     "McpClientManager",
+    "McpRuntimeManager",
     "McpServerConfig",
     "McpServerConnection",
     "add_project_mcp_server",

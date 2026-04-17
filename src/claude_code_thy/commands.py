@@ -5,11 +5,7 @@ import json
 from pathlib import Path
 from typing import Iterable
 
-from claude_code_thy.mcp.names import build_mcp_tool_name, build_prompt_command_name
-from claude_code_thy.mcp.prompts import (
-    parse_prompt_arguments,
-    render_prompt_result,
-)
+from claude_code_thy.mcp.names import build_mcp_tool_name
 from claude_code_thy.mcp.utils import run_async_sync
 from claude_code_thy.models import SessionTranscript
 from claude_code_thy.permissions import PermissionRequest
@@ -23,6 +19,8 @@ class CommandOutcome:
     session: SessionTranscript
     message_added: bool = False
     should_refresh_only: bool = False
+    submit_prompt: str | None = None
+    model_override: str | None = None
 
 
 class CommandProcessor:
@@ -56,6 +54,8 @@ class CommandProcessor:
             return self._model(session, args)
         if command == "/tools":
             return self._append_message(session, self._tools_text(session))
+        if command == "/skills":
+            return self._append_message(session, self._skills_text(session))
         if command == "/mcp":
             return self._append_message(session, self._mcp_text(session))
         if command == "/tasks":
@@ -100,9 +100,14 @@ class CommandProcessor:
         if dynamic_tool is not None:
             return dynamic_tool
 
-        dynamic_prompt = self._run_mcp_prompt(session, normalized_command, raw_args)
-        if dynamic_prompt is not None:
-            return self._append_message(session, dynamic_prompt)
+        prompt_command = self._run_prompt_command(
+            session,
+            normalized_command,
+            raw_args,
+            event_handler=event_handler,
+        )
+        if prompt_command is not None:
+            return prompt_command
 
         if normalized_command.startswith("/mcp__"):
             return self._append_message(
@@ -112,7 +117,7 @@ class CommandProcessor:
 
         return self._append_message(
             session,
-            f"暂不支持命令 `{command}`。\n\n可用命令：/help /status /sessions /resume /model /tools /mcp /tasks /agents /agent /agent-run /agent-wait /task-stop /task-output /bash /read /write /edit /glob /grep /init /clear",
+            f"暂不支持命令 `{command}`。\n\n可用命令：/help /status /sessions /resume /model /tools /skills /mcp /tasks /agents /agent /agent-run /agent-wait /task-stop /task-output /bash /read /write /edit /glob /grep /init /clear",
         )
 
     def resume_pending_permission(
@@ -296,6 +301,7 @@ class CommandProcessor:
             "/resume    恢复指定或最近会话\n"
             "/model     查看或设置当前模型\n"
             "/tools     查看可用工具\n"
+            "/skills    查看可用 skills / prompt commands\n"
             "/mcp       查看当前 MCP server 配置快照\n"
             "/tasks     查看后台任务\n"
             "/agents    查看 agent 任务\n"
@@ -440,6 +446,21 @@ class CommandProcessor:
             )
         lines.append("")
         lines.append("可使用 `claude-code-thy mcp list` 查看连接详情。")
+        return "\n".join(lines)
+
+    def _skills_text(self, session: SessionTranscript) -> str:
+        services = self.tool_runtime.services_for(session)
+        try:
+            run_async_sync(services.mcp_manager.refresh_all())
+        except Exception:
+            pass
+        commands = services.command_registry.list_user_commands(session, services)
+        if not commands:
+            return "当前没有可用 skills。"
+        lines = ["可用 skills / prompt commands："]
+        for command in commands:
+            suffix = f" [{command.execution_context}]" if command.execution_context != "inline" else ""
+            lines.append(f"- /{command.name}{suffix}: {command.description}")
         return "\n".join(lines)
 
     def _agents_text(self, session: SessionTranscript) -> str:
@@ -610,29 +631,43 @@ class CommandProcessor:
             f"{summary.title or '(untitled)'} | {summary.model or '(no-model)'} | {summary.cwd}"
         )
 
-    def _run_mcp_prompt(
+    def _run_prompt_command(
         self,
         session: SessionTranscript,
         command: str,
         raw_args: str,
-    ) -> str | None:
-        manager = self.tool_runtime.services_for(session).mcp_manager
-        try:
-            run_async_sync(manager.refresh_all())
-        except Exception:
+        *,
+        event_handler: ToolEventHandler | None = None,
+    ) -> CommandOutcome | None:
+        services = self.tool_runtime.services_for(session)
+        if command.startswith("/mcp__"):
+            try:
+                run_async_sync(services.mcp_manager.refresh_all())
+            except Exception:
+                pass
+        prompt_command = services.command_registry.find_user_command(session, services, command)
+        if prompt_command is None:
             return None
-        for server_name, prompts in manager.cached_prompts().items():
-            for prompt in prompts:
-                dynamic_name = "/" + build_prompt_command_name(server_name, prompt.name)
-                if command != dynamic_name:
-                    continue
-                arguments = parse_prompt_arguments(prompt, raw_args)
-                result = run_async_sync(manager.get_prompt(server_name, prompt.name, arguments))
-                rendered = render_prompt_result(result).strip()
-                if rendered:
-                    return rendered
-                return f"MCP prompt `{prompt.name}` 已执行，但没有返回文本内容。"
-        return None
+        if prompt_command.execution_context == "fork":
+            return self.run_tool_input(
+                session,
+                "skill",
+                {"skill": prompt_command.name, "args": raw_args},
+                event_handler=event_handler,
+            )
+        rendered = services.command_registry.render_prompt(
+            prompt_command,
+            raw_args,
+            session,
+            services,
+        ).strip()
+        if not rendered:
+            return self._append_message(session, f"命令 `{prompt_command.name}` 没有生成文本内容。")
+        return CommandOutcome(
+            session=session,
+            submit_prompt=rendered,
+            model_override=prompt_command.model,
+        )
 
     def _run_dynamic_tool(
         self,
@@ -710,10 +745,14 @@ class CommandProcessor:
             lines.append("")
             lines.append("当前没有成功注册任何 MCP 动态工具。")
 
+        services = self.tool_runtime.services_for(session)
         dynamic_prompts = sorted(
-            build_prompt_command_name(server_name, prompt.name)
-            for server_name, prompts in cached_prompts.items()
-            for prompt in prompts
+            command_spec.name
+            for command_spec in services.command_registry.list_user_commands(
+                session,
+                services,
+            )
+            if command_spec.kind == "mcp_prompt"
         )
         if dynamic_prompts:
             lines.append("")

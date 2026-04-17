@@ -115,6 +115,12 @@ def parse_server_config(
         if isinstance(headers_raw, dict)
         else {}
     )
+    oauth_raw = raw.get("oauth", {})
+    oauth = (
+        {str(key): value for key, value in oauth_raw.items()}
+        if isinstance(oauth_raw, dict)
+        else {}
+    )
     return McpServerConfig(
         name=name,
         scope=scope,  # type: ignore[arg-type]
@@ -126,6 +132,7 @@ def parse_server_config(
         url=expand_env_vars(url),
         headers=headers,
         headers_helper=str(raw.get("headersHelper", "")).strip(),
+        oauth=oauth,
         enabled=bool(raw.get("enabled", True)),
         raw_config={str(key): value for key, value in raw.items()},
     )

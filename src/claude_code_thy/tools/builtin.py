@@ -10,6 +10,7 @@ from claude_code_thy.tools.GlobTool import GlobTool
 from claude_code_thy.tools.GrepTool import GrepTool
 from claude_code_thy.tools.ListMcpResourcesTool import ListMcpResourcesTool
 from claude_code_thy.tools.ReadMcpResourceTool import ReadMcpResourceTool
+from claude_code_thy.tools.SkillTool import SkillTool
 
 
 def build_builtin_tools() -> list[Tool]:
@@ -21,6 +22,7 @@ def build_builtin_tools() -> list[Tool]:
         WriteTool(),
         GlobTool(),
         GrepTool(),
+        SkillTool(),
         ListMcpResourcesTool(),
         ReadMcpResourceTool(),
     ]

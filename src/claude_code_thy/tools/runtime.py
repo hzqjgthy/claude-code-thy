@@ -13,6 +13,7 @@ from claude_code_thy.mcp.utils import run_async_sync
 from claude_code_thy.models import SessionTranscript
 from claude_code_thy.services import ToolServices, build_tool_services
 from claude_code_thy.tools.MCPTool import MCPTool
+from claude_code_thy.tools.McpAuthTool import McpAuthTool
 from claude_code_thy.tools.base import (
     PermissionContext,
     RuntimeSessionState,
@@ -43,7 +44,8 @@ class ToolRuntime:
         return [tools[name] for name in sorted(tools)]
 
     def list_tool_specs_for_session(self, session: SessionTranscript) -> list[ToolSpec]:
-        return [tool.to_spec() for tool in self.list_tools_for_session(session)]
+        context = self._build_context(session, None)
+        return [tool.to_spec_for_context(context) for tool in self.list_tools_for_session(session)]
 
     def has_tool_for_session(self, session: SessionTranscript, tool_name: str) -> bool:
         return self._resolve_tool(session, tool_name) is not None
@@ -233,6 +235,7 @@ class ToolRuntime:
         state = self._session_states.setdefault(session.session_id, RuntimeSessionState())
         if state.services is None:
             state.services = build_tool_services(cwd)
+        state.services.register_session(session, state)
         state.approved_permissions = {
             str(item)
             for item in session.runtime_state.get("approved_permissions", [])
@@ -286,9 +289,7 @@ class ToolRuntime:
             for definition in cached_tools.get(actual_name, []):
                 if not is_normalized_mcp_name_match(definition.name, normalized_tool_name):
                     continue
-                wrapped = MCPTool(actual_name, definition)
-                wrapped.name = build_mcp_tool_name(actual_name, definition.name)
-                return wrapped
+                return self._wrap_mcp_definition(actual_name, definition)
 
         for actual_name in candidate_servers:
             try:
@@ -298,9 +299,7 @@ class ToolRuntime:
             for definition in definitions:
                 if not is_normalized_mcp_name_match(definition.name, normalized_tool_name):
                     continue
-                wrapped = MCPTool(actual_name, definition)
-                wrapped.name = build_mcp_tool_name(actual_name, definition.name)
-                return wrapped
+                return self._wrap_mcp_definition(actual_name, definition)
         return None
 
     def _dynamic_tools_for_session(self, session: SessionTranscript) -> list[Tool]:
@@ -318,7 +317,12 @@ class ToolRuntime:
         dynamic_tools: list[Tool] = []
         for server_name, definitions in cached_tools.items():
             for definition in definitions:
-                wrapped = MCPTool(server_name, definition)
-                wrapped.name = build_mcp_tool_name(server_name, definition.name)
-                dynamic_tools.append(wrapped)
+                dynamic_tools.append(self._wrap_mcp_definition(server_name, definition))
         return dynamic_tools
+
+    def _wrap_mcp_definition(self, server_name: str, definition) -> Tool:
+        if isinstance(getattr(definition, "annotations", None), dict) and definition.annotations.get("authTool"):
+            return McpAuthTool(server_name)
+        wrapped = MCPTool(server_name, definition)
+        wrapped.name = build_mcp_tool_name(server_name, definition.name)
+        return wrapped

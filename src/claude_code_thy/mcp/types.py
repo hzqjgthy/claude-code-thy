@@ -21,6 +21,7 @@ class McpServerConfig:
     url: str = ""
     headers: dict[str, str] = field(default_factory=dict)
     headers_helper: str = ""
+    oauth: dict[str, object] = field(default_factory=dict)
     enabled: bool = True
     raw_config: dict[str, object] = field(default_factory=dict)
 
@@ -34,6 +35,7 @@ class McpServerConfig:
             self.url,
             tuple(sorted(self.headers.items())),
             self.headers_helper,
+            tuple(sorted(self.oauth.items())),
             self.enabled,
         )
 

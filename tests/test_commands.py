@@ -128,8 +128,8 @@ def test_mcp_prompt_command_is_executed(tmp_path):
 
     outcome = processor.process(session, "/mcp__demo__hello_prompt world")
 
-    assert outcome.message_added is True
-    assert "hello_prompt" in outcome.session.messages[-1].text
+    assert outcome.submit_prompt is not None
+    assert "hello_prompt" in outcome.submit_prompt
 
 
 def test_dynamic_mcp_tool_slash_command_executes(tmp_path):

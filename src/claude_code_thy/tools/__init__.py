@@ -14,6 +14,7 @@ from .base import (
 )
 from .builtin import build_builtin_tools
 from .runtime import ToolRuntime
+from .SkillTool import SkillTool
 
 __all__ = [
     "FileReadState",
@@ -29,5 +30,6 @@ __all__ = [
     "ToolEventHandler",
     "ToolResult",
     "ToolRuntime",
+    "SkillTool",
     "build_builtin_tools",
 ]
