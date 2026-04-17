@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 from rich import box
@@ -85,10 +86,10 @@ class ClaudeCodeThyApp(App[None]):
         self._render_messages()
         self._set_tool_status("Working…")
 
-        outcome = await self.runtime.handle(
+        outcome = await asyncio.to_thread(
+            self._run_runtime_handle_sync,
             self.session,
             prompt,
-            tool_event_handler=self._handle_tool_event,
         )
         self.session = outcome.session
         self._pending_prompt = None
@@ -99,6 +100,19 @@ class ClaudeCodeThyApp(App[None]):
 
         input_widget.disabled = False
         input_widget.focus()
+
+    def _run_runtime_handle_sync(
+        self,
+        session: SessionTranscript,
+        prompt: str,
+    ):
+        return asyncio.run(
+            self.runtime.handle(
+                session,
+                prompt,
+                tool_event_handler=None,
+            )
+        )
 
     def _handle_tool_event(self, event: ToolEvent) -> None:
         label = tool_label(event.tool_name)

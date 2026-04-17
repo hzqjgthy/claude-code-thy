@@ -9,13 +9,19 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from claude_code_thy.cli_mcp import mcp_app
 from claude_code_thy.config import AppConfig
 from claude_code_thy.providers import ProviderConfigurationError, build_provider
 from claude_code_thy.runtime import ConversationRuntime
 from claude_code_thy.session.store import SessionStore
 from claude_code_thy.ui.app import ClaudeCodeThyApp
 
-app = typer.Typer(add_completion=False, help="claude-code-thy terminal application")
+app = typer.Typer(
+    add_completion=False,
+    help="claude-code-thy terminal application",
+    context_settings={"allow_extra_args": True, "ignore_unknown_options": False},
+)
+app.add_typer(mcp_app, name="mcp")
 console = Console(stderr=True)
 
 
@@ -43,10 +49,6 @@ def main(
         None,
         "--model",
         help="Override the model for this session.",
-    ),
-    prompt_parts: list[str] | None = typer.Argument(
-        None,
-        help="Optional prompt text. Used directly in --print mode.",
     ),
 ) -> None:
     if ctx.invoked_subcommand:
@@ -91,7 +93,7 @@ def main(
     session_store.save(session)
 
     if print_mode:
-        prompt = " ".join(prompt_parts or []).strip()
+        prompt = " ".join(ctx.args).strip()
         if not prompt and not sys.stdin.isatty():
             prompt = sys.stdin.read().strip()
         if not prompt:

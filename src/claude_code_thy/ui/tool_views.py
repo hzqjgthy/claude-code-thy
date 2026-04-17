@@ -80,6 +80,11 @@ def truncate_single_line(text: str, limit: int = 120) -> str:
 
 
 def tool_label(tool_name: str) -> str:
+    if tool_name.startswith("mcp__"):
+        parts = tool_name.split("__", 2)
+        if len(parts) == 3:
+            return f"MCP {parts[1]}/{parts[2]}"
+        return "MCP"
     renderer = TOOL_LABELS.get(tool_name)
     return renderer() if renderer is not None else tool_name
 

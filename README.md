@@ -46,6 +46,18 @@
 - MCP、plugins、完整 skills 体系仍在继续补
 - 权限规则、hooks、任务调度和工具 UI 仍会继续向原项目收敛
 
+当前 MCP 已开始进入可用建设阶段：
+
+- 已建立 `mcp/` 子系统骨架
+- 已支持读取项目级 `.mcp.json`
+- 已支持基础 MCP server 配置管理
+- 已接入 `claude-code-thy mcp ...` 子命令起步版
+- 已接入 `/mcp` 配置快照命令
+- 已建立最小 MCP server 入口
+- 已支持把已连接 MCP server 的 tools 接入会话级工具池
+- 已支持把 MCP prompts 作为动态 slash command 执行
+- 已支持基础 MCP resources 列表与读取工具
+
 如果你现在使用它，建议把它理解为：
 
 - 主链路已可用
@@ -148,6 +160,7 @@ CLAUDE_CODE_THY_MAX_TOKENS=4096
 /resume
 /model
 /tools
+/mcp
 /init
 /clear
 ```
@@ -174,6 +187,33 @@ CLAUDE_CODE_THY_MAX_TOKENS=4096
 /task-stop <task_id>
 /task-output <task_id>
 ```
+
+MCP CLI：
+
+```bash
+claude-code-thy mcp list
+claude-code-thy mcp get <name>
+claude-code-thy mcp add-json <name> '{"type":"http","url":"http://localhost:18060/mcp"}'
+claude-code-thy mcp add <name> http://localhost:18060/mcp --transport http
+claude-code-thy mcp remove <name>
+claude-code-thy mcp show-config
+claude-code-thy mcp serve
+```
+
+MCP 动态能力：
+
+```text
+/mcp
+/mcp__<server>__<prompt> <args>
+```
+
+说明：
+
+- 已连接 MCP server 暴露的 tools 会按会话动态进入工具池
+- MCP prompts 当前会被映射为动态 slash command
+- MCP resources 当前通过下面两个工具接入：
+  - `list_mcp_resources`
+  - `read_mcp_resource`
 
 ## 当前工具能力摘要
 
@@ -283,6 +323,7 @@ CLAUDE_CODE_THY_SETTINGS=/your/settings.json
 - file_history
 - skills
 - lsp
+- mcp
 
 更详细说明可查看：
 

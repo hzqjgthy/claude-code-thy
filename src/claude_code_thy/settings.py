@@ -68,6 +68,14 @@ class LspSettings:
 
 
 @dataclass(slots=True)
+class McpSettings:
+    enabled: bool = True
+    servers: dict[str, dict[str, object]] = field(default_factory=dict)
+    connect_timeout_ms: int = 15_000
+    tool_call_timeout_ms: int = 600_000
+
+
+@dataclass(slots=True)
 class AppSettings:
     permission_rules: tuple[ToolPermissionRule, ...] = ()
     read_ignore_patterns: tuple[str, ...] = (
@@ -85,6 +93,7 @@ class AppSettings:
     file_history: FileHistorySettings = field(default_factory=FileHistorySettings)
     skills: SkillsSettings = field(default_factory=SkillsSettings)
     lsp: LspSettings = field(default_factory=LspSettings)
+    mcp: McpSettings = field(default_factory=McpSettings)
 
     @classmethod
     def load_for_workspace(cls, cwd: Path) -> "AppSettings":
@@ -108,6 +117,7 @@ class AppSettings:
             file_history=_load_file_history_settings(raw.get("file_history")),
             skills=_load_skills_settings(raw.get("skills")),
             lsp=_load_lsp_settings(raw.get("lsp")),
+            mcp=_load_mcp_settings(raw.get("mcp")),
         )
 
 
@@ -170,6 +180,20 @@ def validate_settings_document(data: object) -> list[str]:
                 errors.append("lsp.enabled 必须是布尔值。")
             if "servers" in lsp and not isinstance(lsp["servers"], list):
                 errors.append("lsp.servers 必须是数组。")
+
+    mcp = data.get("mcp")
+    if mcp is not None:
+        if not isinstance(mcp, dict):
+            errors.append("mcp 必须是 object。")
+        else:
+            if "enabled" in mcp and not isinstance(mcp["enabled"], bool):
+                errors.append("mcp.enabled 必须是布尔值。")
+            if "servers" in mcp and not isinstance(mcp["servers"], dict):
+                errors.append("mcp.servers 必须是 object。")
+            if "connect_timeout_ms" in mcp and not isinstance(mcp["connect_timeout_ms"], int):
+                errors.append("mcp.connect_timeout_ms 必须是整数。")
+            if "tool_call_timeout_ms" in mcp and not isinstance(mcp["tool_call_timeout_ms"], int):
+                errors.append("mcp.tool_call_timeout_ms 必须是整数。")
 
     return errors
 
@@ -335,4 +359,22 @@ def _load_lsp_settings(value: object) -> LspSettings:
     return LspSettings(
         enabled=bool(value.get("enabled", False)),
         servers=tuple(servers),
+    )
+
+
+def _load_mcp_settings(value: object) -> McpSettings:
+    if not isinstance(value, dict):
+        return McpSettings()
+    raw_servers = value.get("servers")
+    servers: dict[str, dict[str, object]] = {}
+    if isinstance(raw_servers, dict):
+        for name, server in raw_servers.items():
+            if not isinstance(server, dict):
+                continue
+            servers[str(name)] = {str(key): val for key, val in server.items()}
+    return McpSettings(
+        enabled=bool(value.get("enabled", True)),
+        servers=servers,
+        connect_timeout_ms=int(value.get("connect_timeout_ms", 15_000) or 15_000),
+        tool_call_timeout_ms=int(value.get("tool_call_timeout_ms", 600_000) or 600_000),
     )

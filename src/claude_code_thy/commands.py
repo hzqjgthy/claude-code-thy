@@ -1,9 +1,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from pathlib import Path
 from typing import Iterable
 
+from claude_code_thy.mcp.prompts import (
+    build_prompt_command_name,
+    parse_prompt_arguments,
+    render_prompt_result,
+)
+from claude_code_thy.mcp.string_utils import build_mcp_tool_name
+from claude_code_thy.mcp.utils import run_async_sync
 from claude_code_thy.models import SessionTranscript
 from claude_code_thy.permissions import PermissionRequest
 from claude_code_thy.session.runtime_state import clear_pending_permission, set_pending_permission
@@ -33,6 +41,7 @@ class CommandProcessor:
         command_line = raw_prompt.strip()
         command, _, raw_args = command_line.partition(" ")
         command = command.lower()
+        normalized_command = self._normalize_dynamic_command_name(command)
         raw_args = raw_args.strip()
         args = raw_args.split() if raw_args else []
 
@@ -47,7 +56,9 @@ class CommandProcessor:
         if command == "/model":
             return self._model(session, args)
         if command == "/tools":
-            return self._append_message(session, self._tools_text())
+            return self._append_message(session, self._tools_text(session))
+        if command == "/mcp":
+            return self._append_message(session, self._mcp_text(session))
         if command == "/tasks":
             return self._append_message(session, self._tasks_text(session))
         if command == "/agents":
@@ -81,9 +92,28 @@ class CommandProcessor:
         if command == "/resume":
             return self._resume(session, args)
 
+        dynamic_tool = self._run_dynamic_tool(
+            session,
+            normalized_command,
+            raw_args,
+            event_handler=event_handler,
+        )
+        if dynamic_tool is not None:
+            return dynamic_tool
+
+        dynamic_prompt = self._run_mcp_prompt(session, normalized_command, raw_args)
+        if dynamic_prompt is not None:
+            return self._append_message(session, dynamic_prompt)
+
+        if normalized_command.startswith("/mcp__"):
+            return self._append_message(
+                session,
+                self._missing_mcp_dynamic_command_text(session, normalized_command),
+            )
+
         return self._append_message(
             session,
-            f"暂不支持命令 `{command}`。\n\n可用命令：/help /status /sessions /resume /model /tools /tasks /agents /agent /agent-run /agent-wait /task-stop /task-output /bash /read /write /edit /glob /grep /init /clear",
+            f"暂不支持命令 `{command}`。\n\n可用命令：/help /status /sessions /resume /model /tools /mcp /tasks /agents /agent /agent-run /agent-wait /task-stop /task-output /bash /read /write /edit /glob /grep /init /clear",
         )
 
     def resume_pending_permission(
@@ -191,6 +221,68 @@ class CommandProcessor:
         self.session_store.save(session)
         return CommandOutcome(session=session, message_added=True)
 
+    def run_tool_input(
+        self,
+        session: SessionTranscript,
+        tool_name: str,
+        input_data: dict[str, object],
+        *,
+        event_handler: ToolEventHandler | None = None,
+    ) -> CommandOutcome:
+        try:
+            result = self.tool_runtime.execute_input(
+                tool_name,
+                input_data,
+                session,
+                original_input=input_data,
+                event_handler=event_handler,
+            )
+        except PermissionRequiredError as error:
+            set_pending_permission(
+                session,
+                error.request,
+                source_type="slash_command",
+                tool_name=tool_name,
+                input_data=error.input_data,
+                original_input=error.original_input,
+                user_modified=error.user_modified,
+            )
+            session.add_message(
+                "assistant",
+                error.request.prompt_text(),
+                metadata={
+                    "ui_kind": "permission_prompt",
+                    "pending_permission": error.request.to_dict(),
+                },
+            )
+            self.session_store.save(session)
+            return CommandOutcome(session=session, message_added=True)
+        except ToolError as error:
+            session.add_message(
+                "tool",
+                f"工具 `{tool_name}` 执行失败：{error}",
+                metadata={
+                    "tool_name": tool_name,
+                    "display_name": tool_name,
+                    "ui_kind": "error",
+                    "ok": False,
+                    "summary": f"工具 `{tool_name}` 执行失败",
+                    "metadata": {},
+                    "preview": "",
+                    "output": str(error),
+                },
+            )
+            self.session_store.save(session)
+            return CommandOutcome(session=session, message_added=True)
+
+        session.add_message(
+            "tool",
+            result.render(),
+            metadata=result.message_metadata(),
+        )
+        self.session_store.save(session)
+        return CommandOutcome(session=session, message_added=True)
+
     def _append_message(self, session: SessionTranscript, text: str) -> CommandOutcome:
         session.add_message("assistant", text)
         self.session_store.save(session)
@@ -205,6 +297,7 @@ class CommandProcessor:
             "/resume    恢复指定或最近会话\n"
             "/model     查看或设置当前模型\n"
             "/tools     查看可用工具\n"
+            "/mcp       查看当前 MCP server 配置快照\n"
             "/tasks     查看后台任务\n"
             "/agents    查看 agent 任务\n"
             "/agent     通过内置工具启动 agent\n"
@@ -232,7 +325,7 @@ class CommandProcessor:
             f"provider: {session.provider_name or 'unknown'}\n"
             f"model: {session.model or '(unset)'}\n"
             f"messages: {len(session.messages)}\n"
-            f"tools: {len(self.tool_runtime.list_tools())}\n"
+            f"tools: {len(self.tool_runtime.list_tools_for_session(session))}\n"
             f"transcript: {transcript_path}\n\n"
             f"恢复命令：claude-code-thy --resume {session.session_id}"
         )
@@ -300,9 +393,9 @@ class CommandProcessor:
         self.session_store.save(session)
         return self._append_message(session, f"已将当前会话模型切换为：{session.model}")
 
-    def _tools_text(self) -> str:
+    def _tools_text(self, session: SessionTranscript) -> str:
         lines = ["可用工具："]
-        for tool in self.tool_runtime.list_tools():
+        for tool in self.tool_runtime.list_tools_for_session(session):
             suffix = f"\n  用法: {tool.usage}" if getattr(tool, "usage", "") else ""
             meta: list[str] = []
             if tool.is_read_only():
@@ -334,6 +427,20 @@ class CommandProcessor:
             lines.append(
                 f"- {task.task_id} | {task.task_type}/{task_kind} | {status} | {description or command} | {task.started_at}"
             )
+        return "\n".join(lines)
+
+    def _mcp_text(self, session: SessionTranscript) -> str:
+        connections = self.tool_runtime.services_for(session).mcp_manager.snapshot()
+        if not connections:
+            return "当前没有配置 MCP server。"
+        lines = ["MCP servers："]
+        for connection in connections:
+            detail = connection.error or connection.config.url or connection.config.command
+            lines.append(
+                f"- {connection.name} | {connection.config.scope}/{connection.config.type} | {connection.status} | {detail}"
+            )
+        lines.append("")
+        lines.append("可使用 `claude-code-thy mcp list` 查看连接详情。")
         return "\n".join(lines)
 
     def _agents_text(self, session: SessionTranscript) -> str:
@@ -503,6 +610,127 @@ class CommandProcessor:
             f"- {summary.session_id} | {summary.updated_at} | "
             f"{summary.title or '(untitled)'} | {summary.model or '(no-model)'} | {summary.cwd}"
         )
+
+    def _run_mcp_prompt(
+        self,
+        session: SessionTranscript,
+        command: str,
+        raw_args: str,
+    ) -> str | None:
+        manager = self.tool_runtime.services_for(session).mcp_manager
+        try:
+            run_async_sync(manager.refresh_all())
+        except Exception:
+            return None
+        for server_name, prompts in manager.cached_prompts().items():
+            for prompt in prompts:
+                dynamic_name = "/" + build_prompt_command_name(server_name, prompt.name)
+                if command != dynamic_name:
+                    continue
+                arguments = parse_prompt_arguments(prompt, raw_args)
+                result = run_async_sync(manager.get_prompt(server_name, prompt.name, arguments))
+                rendered = render_prompt_result(result).strip()
+                if rendered:
+                    return rendered
+                return f"MCP prompt `{prompt.name}` 已执行，但没有返回文本内容。"
+        return None
+
+    def _run_dynamic_tool(
+        self,
+        session: SessionTranscript,
+        command: str,
+        raw_args: str,
+        *,
+        event_handler: ToolEventHandler | None = None,
+    ) -> CommandOutcome | None:
+        if not command.startswith("/mcp__"):
+            return None
+        tool_name = command[1:]
+        if not self.tool_runtime.has_tool_for_session(session, tool_name):
+            return None
+        raw = raw_args.strip()
+        if not raw:
+            input_data: dict[str, object] = {}
+        else:
+            try:
+                parsed = json.loads(raw)
+            except json.JSONDecodeError:
+                return self._append_message(
+                    session,
+                    "动态 MCP 工具 slash 调用当前要求参数为 JSON object，例如：/mcp__server__tool {\"key\":\"value\"}",
+                )
+            if not isinstance(parsed, dict):
+                return self._append_message(session, "动态 MCP 工具参数必须是 JSON object。")
+            input_data = parsed
+        return self.run_tool_input(
+            session,
+            tool_name,
+            input_data,
+            event_handler=event_handler,
+        )
+
+    def _missing_mcp_dynamic_command_text(
+        self,
+        session: SessionTranscript,
+        command: str,
+    ) -> str:
+        manager = self.tool_runtime.services_for(session).mcp_manager
+        refresh_error = ""
+        try:
+            run_async_sync(manager.refresh_all())
+        except Exception as error:
+            refresh_error = str(error)
+
+        cached_tools = manager.cached_tools()
+        cached_prompts = manager.cached_prompts()
+        connections = manager.snapshot()
+
+        lines = [f"MCP 动态命令未命中：`{command}`"]
+        if refresh_error:
+            lines.append(f"最近一次 MCP 刷新失败：{refresh_error}")
+
+        if connections:
+            lines.append("")
+            lines.append("当前 MCP server 状态：")
+            for connection in connections:
+                detail = connection.error or connection.config.url or connection.config.command or "-"
+                lines.append(
+                    f"- {connection.name} | {connection.status} | {connection.config.type} | {detail}"
+                )
+
+        dynamic_tools = sorted(
+            build_mcp_tool_name(server_name, definition.name)
+            for server_name, definitions in cached_tools.items()
+            for definition in definitions
+        )
+        if dynamic_tools:
+            lines.append("")
+            lines.append("当前已注册的 MCP tools：")
+            lines.extend(f"- /{name}" for name in dynamic_tools[:40])
+        else:
+            lines.append("")
+            lines.append("当前没有成功注册任何 MCP 动态工具。")
+
+        dynamic_prompts = sorted(
+            build_prompt_command_name(server_name, prompt.name)
+            for server_name, prompts in cached_prompts.items()
+            for prompt in prompts
+        )
+        if dynamic_prompts:
+            lines.append("")
+            lines.append("当前已注册的 MCP prompts：")
+            lines.extend(f"- /{name}" for name in dynamic_prompts[:20])
+
+        lines.append("")
+        lines.append("这通常说明模型层可能说出过工具名，但当前 slash 命令分发时并没有把这个动态工具注册进来。")
+        return "\n".join(lines)
+
+    def _normalize_dynamic_command_name(self, command: str) -> str:
+        normalized = command.strip()
+        while normalized and normalized[-1] in "。.!！?？，,：:；;、）)]】」』”’":
+            normalized = normalized[:-1].rstrip()
+        return normalized
+
 
 
 def format_session_summaries(summaries: Iterable[SessionSummary]) -> str:

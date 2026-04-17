@@ -3,8 +3,12 @@ from __future__ import annotations
 import copy
 from pathlib import Path
 
+from claude_code_thy.mcp.normalization import normalize_name_for_mcp
+from claude_code_thy.mcp.string_utils import build_mcp_tool_name
+from claude_code_thy.mcp.utils import run_async_sync
 from claude_code_thy.models import SessionTranscript
 from claude_code_thy.services import ToolServices, build_tool_services
+from claude_code_thy.tools.MCPTool import MCPTool
 from claude_code_thy.tools.base import (
     PermissionContext,
     RuntimeSessionState,
@@ -28,6 +32,18 @@ class ToolRuntime:
     def list_tool_specs(self) -> list[ToolSpec]:
         return [tool.to_spec() for tool in self.list_tools()]
 
+    def list_tools_for_session(self, session: SessionTranscript) -> list[Tool]:
+        dynamic = self._dynamic_tools_for_session(session)
+        tools = {tool.name: tool for tool in self.list_tools()}
+        tools.update({tool.name: tool for tool in dynamic})
+        return [tools[name] for name in sorted(tools)]
+
+    def list_tool_specs_for_session(self, session: SessionTranscript) -> list[ToolSpec]:
+        return [tool.to_spec() for tool in self.list_tools_for_session(session)]
+
+    def has_tool_for_session(self, session: SessionTranscript, tool_name: str) -> bool:
+        return self._resolve_tool(session, tool_name) is not None
+
     def services_for(self, session: SessionTranscript) -> ToolServices:
         context = self._build_context(session, None)
         if context.services is None:
@@ -43,7 +59,7 @@ class ToolRuntime:
         tool_use_id: str | None = None,
         event_handler: ToolEventHandler | None = None,
     ) -> ToolResult:
-        tool = self._tools.get(tool_name)
+        tool = self._resolve_tool(session, tool_name)
         if tool is None:
             raise ToolError(f"未找到工具：{tool_name}")
 
@@ -68,7 +84,7 @@ class ToolRuntime:
         original_input: dict[str, object] | None = None,
         event_handler: ToolEventHandler | None = None,
     ) -> ToolResult:
-        tool = self._tools.get(tool_name)
+        tool = self._resolve_tool(session, tool_name)
         if tool is None:
             raise ToolError(f"未找到工具：{tool_name}")
 
@@ -91,7 +107,7 @@ class ToolRuntime:
         tool_use_id: str | None = None,
         original_input: dict[str, object] | None = None,
     ) -> ToolResult:
-        tool = self._tools.get(tool_name)
+        tool = self._resolve_tool(session, tool_name)
         if tool is None:
             raise ToolError(f"未找到工具：{tool_name}")
         original = copy.deepcopy(original_input or input_data)
@@ -238,3 +254,84 @@ class ToolRuntime:
             original_input=original_input or {},
             user_modified=user_modified,
         )
+
+    def _resolve_tool(self, session: SessionTranscript, tool_name: str) -> Tool | None:
+        tool = self._tools.get(tool_name)
+        if tool is not None:
+            return tool
+        if tool_name.startswith("mcp__"):
+            dynamic = self._resolve_mcp_tool(session, tool_name)
+            if dynamic is not None:
+                return dynamic
+        for dynamic in self._dynamic_tools_for_session(session):
+            if dynamic.name == tool_name:
+                return dynamic
+        return None
+
+    def _resolve_mcp_tool(self, session: SessionTranscript, tool_name: str) -> Tool | None:
+        context = self._build_context(session, None)
+        if context.services is None:
+            return None
+        manager = context.services.mcp_manager
+        server_name, normalized_tool_name = self._parse_mcp_tool_name(tool_name)
+        if not server_name or not normalized_tool_name:
+            return None
+
+        configs_fn = getattr(manager, "configs", None)
+        configs = configs_fn() if callable(configs_fn) else {}
+        available_servers = set(configs)
+        available_servers.update(manager.cached_tools())
+        candidate_servers = [
+            actual_name
+            for actual_name in available_servers
+            if normalize_name_for_mcp(actual_name) == server_name
+        ]
+        for actual_name in candidate_servers:
+            for definition in manager.cached_tools().get(actual_name, []):
+                if normalize_name_for_mcp(definition.name) != normalized_tool_name:
+                    continue
+                wrapped = MCPTool(actual_name, definition)
+                wrapped.name = build_mcp_tool_name(actual_name, definition.name)
+                return wrapped
+
+        for actual_name in candidate_servers:
+            try:
+                definitions = run_async_sync(manager.list_tools(actual_name))
+            except Exception:
+                continue
+            for definition in definitions:
+                if normalize_name_for_mcp(definition.name) != normalized_tool_name:
+                    continue
+                wrapped = MCPTool(actual_name, definition)
+                wrapped.name = build_mcp_tool_name(actual_name, definition.name)
+                return wrapped
+        return None
+
+    def _parse_mcp_tool_name(self, tool_name: str) -> tuple[str, str]:
+        if not tool_name.startswith("mcp__"):
+            return "", ""
+        suffix = tool_name[5:]
+        if "__" not in suffix:
+            return "", ""
+        server_name, normalized_tool_name = suffix.split("__", 1)
+        return server_name.strip(), normalized_tool_name.strip()
+
+    def _dynamic_tools_for_session(self, session: SessionTranscript) -> list[Tool]:
+        context = self._build_context(session, None)
+        if context.services is None:
+            return []
+        manager = context.services.mcp_manager
+        cached_tools = manager.cached_tools()
+        if not cached_tools:
+            try:
+                run_async_sync(manager.refresh_all())
+            except Exception:
+                pass
+            cached_tools = manager.cached_tools()
+        dynamic_tools: list[Tool] = []
+        for server_name, definitions in cached_tools.items():
+            for definition in definitions:
+                wrapped = MCPTool(server_name, definition)
+                wrapped.name = build_mcp_tool_name(server_name, definition.name)
+                dynamic_tools.append(wrapped)
+        return dynamic_tools

@@ -5,6 +5,7 @@ from pathlib import Path
 
 from claude_code_thy.file_history import FileHistoryStore
 from claude_code_thy.lsp import LspManager
+from claude_code_thy.mcp import McpClientManager
 from claude_code_thy.permissions import PermissionEngine
 from claude_code_thy.sandbox import SandboxManager, SandboxPolicy
 from claude_code_thy.settings import AppSettings
@@ -22,6 +23,7 @@ class ToolServices:
     file_history: FileHistoryStore
     skill_manager: SkillManager
     lsp_manager: LspManager
+    mcp_manager: McpClientManager
 
 
 def build_tool_services(workspace_root: Path) -> ToolServices:
@@ -35,4 +37,5 @@ def build_tool_services(workspace_root: Path) -> ToolServices:
         file_history=FileHistoryStore(workspace_root, settings.file_history),
         skill_manager=SkillManager(workspace_root, settings.skills),
         lsp_manager=LspManager(workspace_root, settings.lsp),
+        mcp_manager=McpClientManager(workspace_root, settings),
     )

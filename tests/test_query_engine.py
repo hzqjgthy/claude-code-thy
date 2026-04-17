@@ -80,3 +80,406 @@ def test_query_engine_runs_tool_loop(tmp_path):
     assert roles == ["user", "assistant", "tool", "assistant"]
     assert "tool loop content" in updated.messages[2].text
     assert updated.messages[-1].text == "我已经读取了文件内容。"
+import asyncio
+
+from claude_code_thy.models import SessionTranscript
+from claude_code_thy.providers.base import Provider, ProviderResponse
+from claude_code_thy.runtime import ConversationRuntime
+from claude_code_thy.session.store import SessionStore
+from claude_code_thy.mcp.types import McpToolDefinition
+
+
+class DummyProvider(Provider):
+    name = "dummy"
+
+    async def complete(self, session, tools):
+        return ProviderResponse(display_text="done", content_blocks=[{"type": "text", "text": "done"}], tool_calls=[])
+
+
+class FailIfCalledAgainProvider(Provider):
+    name = "fail-if-called-again"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def complete(self, session, tools):
+        self.calls += 1
+        if self.calls > 1:
+            raise AssertionError("provider.complete should not be called again after MCP tool result")
+        return ProviderResponse(
+            display_text="调用 MCP 工具",
+            content_blocks=[
+                {
+                    "type": "tool_use",
+                    "id": "toolu_mcp_1",
+                    "name": "mcp__xiaohongshu_mcp__check_login_status",
+                    "input": {},
+                }
+            ],
+            tool_calls=[
+                ToolCallRequest(
+                    id="toolu_mcp_1",
+                    name="mcp__xiaohongshu_mcp__check_login_status",
+                    input={},
+                )
+            ],
+        )
+
+
+def test_runtime_explicit_mcp_tool_request_executes_without_model_tool_choice(tmp_path):
+    store = SessionStore(root_dir=tmp_path / "sessions")
+    runtime = ConversationRuntime(provider=DummyProvider(), session_store=store)
+    session = store.create(cwd=str(tmp_path), model="dummy", provider_name="dummy")
+    store.save(session)
+    services = runtime.tool_runtime.services_for(session)
+
+    class DummyMgr:
+        async def refresh_all(self):
+            return []
+
+        def cached_tools(self):
+            return {
+                "xiaohongshu-mcp": [
+                    McpToolDefinition(
+                        name="check_login_status",
+                        description="check login",
+                        input_schema={"type": "object", "properties": {}, "required": []},
+                        annotations={"readOnlyHint": True, "original_name": "check_login_status"},
+                    )
+                ]
+            }
+
+        def cached_prompts(self):
+            return {}
+
+        def cached_resources(self):
+            return {}
+
+        async def call_tool(self, server_name, tool_name, arguments=None):
+            return {"content": "logged-in"}
+
+    services.mcp_manager = DummyMgr()
+
+    outcome = asyncio.run(
+        runtime.handle(
+            session,
+            "使用mcp__xiaohongshu_mcp__check_login_status帮我查看当前小红书登录状态",
+        )
+    )
+
+    assert any(message.role == "tool" for message in outcome.session.messages)
+
+
+def test_runtime_approved_non_readonly_mcp_tool_does_not_prompt_again(tmp_path):
+    store = SessionStore(root_dir=tmp_path / "sessions")
+    runtime = ConversationRuntime(provider=DummyProvider(), session_store=store)
+    session = store.create(cwd=str(tmp_path), model="dummy", provider_name="dummy")
+    session.runtime_state["approved_permissions"] = [
+        "mcp__xiaohongshu_mcp__like_feed:command:mcp__xiaohongshu_mcp__like_feed"
+    ]
+    store.save(session)
+    services = runtime.tool_runtime.services_for(session)
+
+    class DummyMgr:
+        async def refresh_all(self):
+            return []
+
+        def cached_tools(self):
+            return {
+                "xiaohongshu-mcp": [
+                    McpToolDefinition(
+                        name="like_feed",
+                        description="like feed",
+                        input_schema={"type": "object", "properties": {}, "required": []},
+                        annotations={"original_name": "like_feed"},
+                    )
+                ]
+            }
+
+        def cached_prompts(self):
+            return {}
+
+        def cached_resources(self):
+            return {}
+
+        async def call_tool(self, server_name, tool_name, arguments=None):
+            return {"content": "liked"}
+
+    services.mcp_manager = DummyMgr()
+
+    outcome = asyncio.run(
+        runtime.handle(
+            session,
+            "使用mcp__xiaohongshu_mcp__like_feed帮我点赞这条笔记",
+        )
+    )
+
+    assistant_messages = [message for message in outcome.session.messages if message.role == "assistant"]
+    assert not any("回复 `yes`" in message.text for message in assistant_messages)
+    assert any(message.role == "tool" for message in outcome.session.messages)
+
+
+def test_query_engine_pauses_after_mcp_tool_result_without_second_provider_round(tmp_path):
+    store = SessionStore(root_dir=tmp_path / "sessions")
+    provider = FailIfCalledAgainProvider()
+    session = store.create(cwd=str(tmp_path), model="dummy", provider_name="dummy")
+    engine = QueryEngine(
+        provider=provider,
+        session_store=store,
+        tool_runtime=ToolRuntime(build_builtin_tools()),
+    )
+    services = engine.tool_runtime.services_for(session)
+
+    class DummyMgr:
+        async def refresh_all(self):
+            return []
+
+        def cached_tools(self):
+            return {
+                "xiaohongshu-mcp": [
+                    McpToolDefinition(
+                        name="check_login_status",
+                        description="check login",
+                        input_schema={"type": "object", "properties": {}, "required": []},
+                        annotations={"readOnlyHint": True, "original_name": "check_login_status"},
+                    )
+                ]
+            }
+
+        def cached_prompts(self):
+            return {}
+
+        def cached_resources(self):
+            return {}
+
+        async def call_tool(self, server_name, tool_name, arguments=None):
+            return {"content": "logged-in"}
+
+    services.mcp_manager = DummyMgr()
+
+    updated = asyncio.run(engine.submit(session, "帮我查看当前小红书的登录状态"))
+
+    roles = [message.role for message in updated.messages]
+    assert roles == ["user", "assistant", "tool"]
+    assert provider.calls == 1
+
+
+def test_resume_pending_mcp_tool_call_pauses_after_tool_result(tmp_path):
+    store = SessionStore(root_dir=tmp_path / "sessions")
+    provider = DummyProvider()
+    session = store.create(cwd=str(tmp_path), model="dummy", provider_name="dummy")
+    engine = QueryEngine(
+        provider=provider,
+        session_store=store,
+        tool_runtime=ToolRuntime(build_builtin_tools()),
+    )
+    services = engine.tool_runtime.services_for(session)
+
+    class DummyMgr:
+        async def refresh_all(self):
+            return []
+
+        def cached_tools(self):
+            return {
+                "xiaohongshu-mcp": [
+                    McpToolDefinition(
+                        name="like_feed",
+                        description="like feed",
+                        input_schema={"type": "object", "properties": {}, "required": []},
+                        annotations={"original_name": "like_feed"},
+                    )
+                ]
+            }
+
+        def cached_prompts(self):
+            return {}
+
+        def cached_resources(self):
+            return {}
+
+        async def call_tool(self, server_name, tool_name, arguments=None):
+            return {"content": "liked"}
+
+    services.mcp_manager = DummyMgr()
+
+    pending = {
+        "source_type": "tool_call",
+        "tool_name": "mcp__xiaohongshu_mcp__like_feed",
+        "tool_use_id": "toolu_resume_1",
+        "input_data": {},
+        "original_input": {},
+        "request": {
+            "request_id": "req1",
+            "tool_name": "mcp__xiaohongshu_mcp__like_feed",
+            "target": "command",
+            "value": "mcp__xiaohongshu_mcp__like_feed",
+            "reason": "need permission",
+            "approval_key": "mcp__xiaohongshu_mcp__like_feed:command:mcp__xiaohongshu_mcp__like_feed",
+            "matched_rule_pattern": "",
+            "matched_rule_description": "",
+        },
+    }
+    session.runtime_state["approved_permissions"] = [
+        "mcp__xiaohongshu_mcp__like_feed:command:mcp__xiaohongshu_mcp__like_feed"
+    ]
+
+    updated = asyncio.run(
+        engine.resume_pending_tool_call(
+            session,
+            pending,
+            approved=True,
+        )
+    )
+
+    roles = [message.role for message in updated.messages]
+    assert roles == ["tool"]
+
+
+def test_query_engine_mcp_tool_call_does_not_block_event_loop(tmp_path):
+    store = SessionStore(root_dir=tmp_path / "sessions")
+    provider = FailIfCalledAgainProvider()
+    session = store.create(cwd=str(tmp_path), model="dummy", provider_name="dummy")
+    engine = QueryEngine(
+        provider=provider,
+        session_store=store,
+        tool_runtime=ToolRuntime(build_builtin_tools()),
+    )
+    services = engine.tool_runtime.services_for(session)
+
+    class DummyMgr:
+        async def refresh_all(self):
+            return []
+
+        def cached_tools(self):
+            return {
+                "xiaohongshu-mcp": [
+                    McpToolDefinition(
+                        name="check_login_status",
+                        description="check login",
+                        input_schema={"type": "object", "properties": {}, "required": []},
+                        annotations={"readOnlyHint": True, "original_name": "check_login_status"},
+                    )
+                ]
+            }
+
+        def cached_prompts(self):
+            return {}
+
+        def cached_resources(self):
+            return {}
+
+        async def call_tool(self, server_name, tool_name, arguments=None):
+            await asyncio.sleep(0.05)
+            return {"content": "logged-in"}
+
+    services.mcp_manager = DummyMgr()
+    tick_count = 0
+    done = False
+
+    async def ticker():
+        nonlocal tick_count
+        while not done:
+            tick_count += 1
+            await asyncio.sleep(0.005)
+
+    async def run():
+        nonlocal done
+        ticker_task = asyncio.create_task(ticker())
+        try:
+            updated = await engine.submit(session, "帮我查看当前小红书的登录状态")
+        finally:
+            done = True
+            await ticker_task
+        return updated
+
+    updated = asyncio.run(run())
+
+    assert [message.role for message in updated.messages] == ["user", "assistant", "tool"]
+    assert tick_count >= 3
+
+
+def test_resume_pending_mcp_tool_call_does_not_block_event_loop(tmp_path):
+    store = SessionStore(root_dir=tmp_path / "sessions")
+    provider = DummyProvider()
+    session = store.create(cwd=str(tmp_path), model="dummy", provider_name="dummy")
+    engine = QueryEngine(
+        provider=provider,
+        session_store=store,
+        tool_runtime=ToolRuntime(build_builtin_tools()),
+    )
+    services = engine.tool_runtime.services_for(session)
+
+    class DummyMgr:
+        async def refresh_all(self):
+            return []
+
+        def cached_tools(self):
+            return {
+                "xiaohongshu-mcp": [
+                    McpToolDefinition(
+                        name="like_feed",
+                        description="like feed",
+                        input_schema={"type": "object", "properties": {}, "required": []},
+                        annotations={"original_name": "like_feed"},
+                    )
+                ]
+            }
+
+        def cached_prompts(self):
+            return {}
+
+        def cached_resources(self):
+            return {}
+
+        async def call_tool(self, server_name, tool_name, arguments=None):
+            await asyncio.sleep(0.05)
+            return {"content": "liked"}
+
+    services.mcp_manager = DummyMgr()
+    pending = {
+        "source_type": "tool_call",
+        "tool_name": "mcp__xiaohongshu_mcp__like_feed",
+        "tool_use_id": "toolu_resume_2",
+        "input_data": {},
+        "original_input": {},
+        "request": {
+            "request_id": "req2",
+            "tool_name": "mcp__xiaohongshu_mcp__like_feed",
+            "target": "command",
+            "value": "mcp__xiaohongshu_mcp__like_feed",
+            "reason": "need permission",
+            "approval_key": "mcp__xiaohongshu_mcp__like_feed:command:mcp__xiaohongshu_mcp__like_feed",
+            "matched_rule_pattern": "",
+            "matched_rule_description": "",
+        },
+    }
+    session.runtime_state["approved_permissions"] = [
+        "mcp__xiaohongshu_mcp__like_feed:command:mcp__xiaohongshu_mcp__like_feed"
+    ]
+    tick_count = 0
+    done = False
+
+    async def ticker():
+        nonlocal tick_count
+        while not done:
+            tick_count += 1
+            await asyncio.sleep(0.005)
+
+    async def run():
+        nonlocal done
+        ticker_task = asyncio.create_task(ticker())
+        try:
+            updated = await engine.resume_pending_tool_call(
+                session,
+                pending,
+                approved=True,
+            )
+        finally:
+            done = True
+            await ticker_task
+        return updated
+
+    updated = asyncio.run(run())
+
+    assert [message.role for message in updated.messages] == ["tool"]
+    assert tick_count >= 3

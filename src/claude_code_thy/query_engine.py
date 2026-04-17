@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 from claude_code_thy.models import SessionTranscript
 from claude_code_thy.session.runtime_state import clear_pending_permission, set_pending_permission
 from claude_code_thy.providers.base import Provider, ProviderError
@@ -66,7 +68,7 @@ class QueryEngine:
 
         if approved:
             try:
-                result = self.tool_runtime.execute_input(
+                result = await self._execute_tool_input(
                     tool_name,
                     input_data,
                     session,
@@ -121,6 +123,8 @@ class QueryEngine:
 
             self._append_tool_result(session, result, tool_use_id=tool_use_id)
             self.session_store.save(session)
+            if self._should_pause_after_tool_result(tool_name):
+                return session
             return await self._complete_until_pause(
                 session,
                 tool_event_handler=tool_event_handler,
@@ -155,7 +159,7 @@ class QueryEngine:
             try:
                 response = await self.provider.complete(
                     session,
-                    self.tool_runtime.list_tool_specs(),
+                    self.tool_runtime.list_tool_specs_for_session(session),
                 )
             except ProviderError as error:
                 session.add_message("assistant", f"API 调用失败：{error}")
@@ -191,7 +195,7 @@ class QueryEngine:
                         )
                     )
                 try:
-                    result = self.tool_runtime.execute_input(
+                    result = await self._execute_tool_input(
                         call.name,
                         call.input,
                         session,
@@ -261,10 +265,62 @@ class QueryEngine:
                     )
                 self._append_tool_result(session, result, tool_use_id=call.id)
                 self.session_store.save(session)
+                if self._should_pause_after_tool_result(call.name):
+                    return session
 
         session.add_message("assistant", "工具调用轮次超出限制，已停止自动执行。")
         self.session_store.save(session)
         return session
+
+    def _should_pause_after_tool_result(self, tool_name: str) -> bool:
+        return tool_name.startswith("mcp__")
+
+    async def _execute_tool_input(
+        self,
+        tool_name: str,
+        input_data: dict[str, object],
+        session: SessionTranscript,
+        *,
+        tool_use_id: str | None = None,
+        original_input: dict[str, object] | None = None,
+        event_handler: ToolEventHandler | None = None,
+    ):
+        if not tool_name.startswith("mcp__"):
+            return self.tool_runtime.execute_input(
+                tool_name,
+                input_data,
+                session,
+                tool_use_id=tool_use_id,
+                original_input=original_input,
+                event_handler=event_handler,
+            )
+
+        timeout_s = self._mcp_ui_wait_timeout_seconds(session)
+        try:
+            return await asyncio.wait_for(
+                asyncio.to_thread(
+                    self.tool_runtime.execute_input,
+                    tool_name,
+                    input_data,
+                    session,
+                    tool_use_id=tool_use_id,
+                    original_input=original_input,
+                    event_handler=None,
+                ),
+                timeout=timeout_s,
+            )
+        except asyncio.TimeoutError as error:
+            raise ToolError(
+                f"工具 `{tool_name}` 在 UI 等待阶段超时（>{int(timeout_s * 1000)} ms）"
+            ) from error
+
+    def _mcp_ui_wait_timeout_seconds(self, session: SessionTranscript) -> float:
+        try:
+            services = self.tool_runtime.services_for(session)
+        except ToolError:
+            return 30.0
+        timeout_ms = services.settings.mcp.tool_call_timeout_ms
+        return max(min(timeout_ms / 1000 + 1.0, 30.0), 1.0)
 
     def _append_tool_result(
         self,
