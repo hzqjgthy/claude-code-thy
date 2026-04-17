@@ -70,3 +70,16 @@ def test_bash_advanced_shell_syntax_requires_permission(tmp_path):
         assert "Advanced shell syntax" in error.request.reason
     else:
         raise AssertionError("Expected PermissionRequiredError")
+
+
+def test_bash_without_description_uses_command_in_summary(tmp_path):
+    runtime = build_runtime()
+    session = SessionTranscript(session_id="bash-5", cwd=str(tmp_path))
+
+    result = runtime.execute("bash", "-- echo hello-bash", session)
+
+    assert result.ok is True
+    assert result.summary == "命令：echo hello-bash"
+    assert isinstance(result.structured_data, dict)
+    assert result.structured_data["description"] == "echo hello-bash"
+    assert result.output == "hello-bash"

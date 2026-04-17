@@ -178,7 +178,7 @@ class BashTool(Tool):
             context,
             command=str(args["command"]),
             timeout_ms=int(args.get("timeout", 30_000) or 30_000),
-            description=str(args.get("description", "")).strip() or None,
+            description=self._optional_description(args.get("description")),
             run_in_background=bool(args.get("run_in_background", False)),
             dangerously_disable_sandbox=bool(args.get("dangerouslyDisableSandbox", False)),
         )
@@ -189,7 +189,7 @@ class BashTool(Tool):
             raise ToolError("tool input 缺少 command")
 
         timeout_ms = int(input_data.get("timeout", 30_000) or 30_000)
-        description = str(input_data.get("description", "")).strip() or None
+        description = self._optional_description(input_data.get("description"))
         run_in_background = bool(input_data.get("run_in_background", False))
         dangerously_disable_sandbox = bool(input_data.get("dangerouslyDisableSandbox", False))
         return self._run_command(
@@ -200,6 +200,12 @@ class BashTool(Tool):
             run_in_background=run_in_background,
             dangerously_disable_sandbox=dangerously_disable_sandbox,
         )
+
+    def _optional_description(self, value: object) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
 
     def _run_command(
         self,

@@ -188,6 +188,18 @@ def test_read_tool_supports_utf16_text(tmp_path):
     assert "hi" in result.output
 
 
+def test_read_tool_supports_utf8_non_ascii_text(tmp_path):
+    runtime = build_runtime()
+    session = SessionTranscript(session_id="test", cwd=str(tmp_path))
+    path = tmp_path / "README.md"
+    path.write_text("你好，世界\n这是一个 UTF-8 文本文件。\n", encoding="utf-8")
+
+    result = runtime.execute("read", "README.md", session)
+
+    assert result.ok is True
+    assert "你好，世界" in result.output
+
+
 def test_render_rejected_edit_result_contains_diff(tmp_path):
     runtime = build_runtime()
     session = SessionTranscript(session_id="test", cwd=str(tmp_path))

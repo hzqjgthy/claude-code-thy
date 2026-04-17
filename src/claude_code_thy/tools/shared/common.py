@@ -164,9 +164,15 @@ def _is_binary_bytes(raw: bytes) -> bool:
         return True
     if not raw:
         return False
-    sample = raw[:1024]
-    text_chars = sum(32 <= byte <= 126 or byte in b"\n\r\t\b\f" for byte in sample)
-    return (len(sample) - text_chars) / len(sample) > 0.3
+    # Follow the upstream-style heuristic: treat UTF-8/high-bit bytes as normal
+    # text bytes, and only flag binary when we see NULs or too many control
+    # characters. This avoids misclassifying Chinese UTF-8 text files.
+    sample = raw[:8192]
+    non_printable = 0
+    for byte in sample:
+        if byte < 32 and byte not in b"\t\n\r":
+            non_printable += 1
+    return non_printable / len(sample) > 0.1
 
 
 def _file_timestamp(path: Path) -> int:

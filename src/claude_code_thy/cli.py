@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-import os
 import asyncio
+import os
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 import typer
@@ -23,6 +24,15 @@ app = typer.Typer(
 )
 app.add_typer(mcp_app, name="mcp")
 console = Console(stderr=True)
+
+
+@dataclass(slots=True)
+class RootInvocation:
+    resume: str | None = None
+    print_mode: bool = False
+    list_sessions: bool = False
+    model: str | None = None
+    prompt_tokens: list[str] | None = None
 
 
 @app.callback(invoke_without_command=True)
@@ -54,6 +64,37 @@ def main(
     if ctx.invoked_subcommand:
         return
 
+    _run_root_command(
+        resume=resume,
+        print_mode=print_mode,
+        list_sessions=list_sessions,
+        model=model,
+        prompt_tokens=list(ctx.args),
+    )
+
+
+def run() -> None:
+    invocation = _preprocess_root_invocation(sys.argv[1:])
+    if invocation is not None:
+        _run_root_command(
+            resume=invocation.resume,
+            print_mode=invocation.print_mode,
+            list_sessions=invocation.list_sessions,
+            model=invocation.model,
+            prompt_tokens=invocation.prompt_tokens or [],
+        )
+        return
+    app(prog_name="claude-code-thy")
+
+
+def _run_root_command(
+    *,
+    resume: str | None,
+    print_mode: bool,
+    list_sessions: bool,
+    model: str | None,
+    prompt_tokens: list[str],
+) -> None:
     config = AppConfig.from_env()
     session_store = SessionStore()
     cwd = os.getcwd()
@@ -93,7 +134,7 @@ def main(
     session_store.save(session)
 
     if print_mode:
-        prompt = " ".join(ctx.args).strip()
+        prompt = " ".join(prompt_tokens).strip()
         if not prompt and not sys.stdin.isatty():
             prompt = sys.stdin.read().strip()
         if not prompt:
@@ -110,8 +151,52 @@ def main(
     ui.run()
 
 
-def run() -> None:
-    app(prog_name="claude-code-thy")
+def _preprocess_root_invocation(argv: list[str]) -> RootInvocation | None:
+    invocation = RootInvocation()
+    index = 0
+
+    while index < len(argv):
+        token = argv[index]
+
+        if token in {"--help", "-h"}:
+            return None
+        if token == "--":
+            remaining = argv[index + 1 :]
+            if invocation.print_mode and remaining:
+                invocation.prompt_tokens = remaining
+                return invocation
+            return None
+        if token in {"--resume", "-r"}:
+            index += 1
+            if index >= len(argv):
+                return None
+            invocation.resume = argv[index]
+            index += 1
+            continue
+        if token == "--model":
+            index += 1
+            if index >= len(argv):
+                return None
+            invocation.model = argv[index]
+            index += 1
+            continue
+        if token in {"--print", "-p"}:
+            invocation.print_mode = True
+            index += 1
+            continue
+        if token == "--list-sessions":
+            invocation.list_sessions = True
+            index += 1
+            continue
+        if token.startswith("-"):
+            return None
+
+        if invocation.print_mode:
+            invocation.prompt_tokens = argv[index:]
+            return invocation
+        return None
+
+    return None
 
 
 def _print_recent_sessions(session_store: SessionStore) -> None:
