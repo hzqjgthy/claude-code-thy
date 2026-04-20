@@ -69,8 +69,9 @@ class OpenAIResponsesProvider(Provider):
         except json.JSONDecodeError as error:
             raise ProviderError("响应不是有效 JSON") from error
 
-        if "error" in data:
-            raise ProviderError(self._stringify_error(data["error"]))
+        error = data.get("error")
+        if error not in (None, "", {}):
+            raise ProviderError(self._stringify_error(error))
 
         output = data.get("output", [])
         if not isinstance(output, list):
@@ -224,12 +225,27 @@ class OpenAIResponsesProvider(Provider):
         return calls
 
     def _tool_to_api(self, tool: ToolSpec) -> dict[str, object]:
+        parameters = self._parameters_for_tool(tool)
         return {
             "type": "function",
             "name": tool.name,
             "description": tool.description,
-            "parameters": tool.input_schema,
+            "parameters": parameters,
             "strict": False,
+        }
+
+    def _parameters_for_tool(self, tool: ToolSpec) -> dict[str, object]:
+        if tool.name != "edit":
+            return tool.input_schema
+        return {
+            "type": "object",
+            "properties": {
+                "file_path": {"type": "string", "description": "File to edit."},
+                "old_string": {"type": "string", "description": "Exact text to replace."},
+                "new_string": {"type": "string", "description": "Replacement text."},
+                "replace_all": {"type": "boolean", "description": "Replace every match instead of one."},
+            },
+            "required": ["file_path", "old_string", "new_string"],
         }
 
     def _headers(self) -> dict[str, str]:

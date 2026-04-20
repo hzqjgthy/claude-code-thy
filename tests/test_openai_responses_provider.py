@@ -149,6 +149,38 @@ def test_openai_responses_provider_rejects_non_object_tool_arguments():
         raise AssertionError("Expected ProviderError")
 
 
+def test_openai_responses_provider_simplifies_edit_schema_for_gateway_compat():
+    config = AppConfig(
+        provider="openai-responses-compatible",
+        model="gpt-5.4",
+        openai_responses_api_key="test-openai-key",
+    )
+    provider = OpenAIResponsesProvider(config)
+    tool = ToolSpec(
+        name="edit",
+        description="按 old_string/new_string 规则精确编辑文件。",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "file_path": {"type": "string"},
+                "old_string": {"type": "string"},
+                "new_string": {"type": "string"},
+                "replace_all": {"type": "boolean"},
+                "edits": {"type": "array"},
+            },
+            "required": ["file_path"],
+        },
+    )
+
+    payload = provider._tool_to_api(tool)
+    parameters = payload["parameters"]
+
+    assert payload["name"] == "edit"
+    assert parameters["required"] == ["file_path", "old_string", "new_string"]
+    assert "edits" not in parameters["properties"]
+    assert parameters["properties"]["replace_all"]["type"] == "boolean"
+
+
 def test_openai_responses_provider_rejects_stream_mode_for_now():
     config = AppConfig(
         provider="openai-responses-compatible",
@@ -165,3 +197,36 @@ def test_openai_responses_provider_rejects_stream_mode_for_now():
         assert "OPENAI_RESPONSES_ENABLE_STREAM=false" in str(error)
     else:
         raise AssertionError("Expected ProviderError")
+
+
+def test_openai_responses_provider_ignores_null_error_field(monkeypatch):
+    config = AppConfig(
+        provider="openai-responses-compatible",
+        model="gpt-5.4",
+        openai_responses_api_key="test-openai-key",
+        openai_responses_base_url="https://example.com",
+    )
+    provider = OpenAIResponsesProvider(config)
+    session = SessionTranscript(session_id="s1", cwd="/tmp", model="gpt-5.4", provider_name=provider.name)
+    session.add_message("user", "你好", content_blocks=[{"type": "text", "text": "你好"}])
+
+    def fake_urlopen(request, timeout):
+        _ = (request, timeout)
+        return _FakeHttpResponse(
+            {
+                "error": None,
+                "output": [
+                    {
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [{"type": "output_text", "text": "你好！"}],
+                    }
+                ],
+            }
+        )
+
+    monkeypatch.setattr("claude_code_thy.providers.openai_responses.urlopen", fake_urlopen)
+
+    response = provider._request(session, [])
+
+    assert response.display_text == "你好！"

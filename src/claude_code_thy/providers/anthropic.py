@@ -65,8 +65,9 @@ class AnthropicCompatibleProvider(Provider):
         except json.JSONDecodeError as error:
             raise ProviderError("响应不是有效 JSON") from error
 
-        if "error" in data:
-            raise ProviderError(str(data["error"]))
+        error = data.get("error")
+        if error not in (None, "", {}):
+            raise ProviderError(str(error))
 
         content = data.get("content", [])
         if not isinstance(content, list):
