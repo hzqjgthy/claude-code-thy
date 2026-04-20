@@ -9,7 +9,9 @@ from claude_code_thy.tools.shared.common import (
     _candidate_path,
     _make_parser,
     _missing_path_error,
+    _optional_stripped,
     _parse_args,
+    _path_permission_result,
     _resolve_path,
 )
 from .prompt import DESCRIPTION, USAGE
@@ -60,20 +62,7 @@ class GlobTool(Tool):
         raw_path = str(input_data.get("path", "")).strip()
         if not raw_path:
             return PermissionResult.allow(updated_input=input_data)
-        path = _candidate_path(context, raw_path, allow_missing=True)
-        decision = context.permission_context.check_path(self.name, path)
-        if decision is None or (decision.allowed and not decision.requires_confirmation):
-            return PermissionResult.allow(updated_input=input_data)
-        if decision.requires_confirmation:
-            return PermissionResult.ask(
-                context.permission_context.build_request_for_path(
-                    self.name,
-                    path,
-                    reason=decision.reason,
-                ),
-                updated_input=input_data,
-            )
-        return PermissionResult.deny(decision.reason or f"{self.name} 被权限规则拒绝")
+        return _path_permission_result(self.name, raw_path, context, input_data)
 
     def prepare_permission_matcher(self, input_data: dict[str, object], context: ToolContext):
         raw_path = str(input_data.get("path", "")).strip()
@@ -92,7 +81,7 @@ class GlobTool(Tool):
         pattern = str(input_data.get("pattern", "")).strip()
         if not pattern:
             raise ToolError("tool input 缺少 pattern")
-        path = str(input_data.get("path", "")).strip() or None
+        path = _optional_stripped(input_data.get("path"))
         return self._glob(context, pattern=pattern, path=path)
 
     def _glob(self, context: ToolContext, *, pattern: str, path: str | None) -> ToolResult:

@@ -93,6 +93,30 @@ def test_mcp_command_lists_configured_servers(tmp_path):
     assert "http" in outcome.session.messages[-1].text
 
 
+def test_tasks_command_suppresses_task_notifications(tmp_path):
+    store = SessionStore(root_dir=tmp_path / "sessions")
+    processor = build_processor(store)
+    session = store.create(cwd=str(tmp_path), model="glm-4.5", provider_name="test-provider")
+    store.save(session)
+
+    outcome = processor.process(session, "/tasks")
+
+    assert outcome.message_added is True
+    assert outcome.suppress_task_notifications is True
+
+
+def test_agents_command_suppresses_task_notifications(tmp_path):
+    store = SessionStore(root_dir=tmp_path / "sessions")
+    processor = build_processor(store)
+    session = store.create(cwd=str(tmp_path), model="glm-4.5", provider_name="test-provider")
+    store.save(session)
+
+    outcome = processor.process(session, "/agents")
+
+    assert outcome.message_added is True
+    assert outcome.suppress_task_notifications is True
+
+
 def test_mcp_prompt_command_is_executed(tmp_path):
     store = SessionStore(root_dir=tmp_path / "sessions")
     processor = build_processor(store)
@@ -172,6 +196,54 @@ def test_dynamic_mcp_tool_slash_command_executes(tmp_path):
 
     assert outcome.message_added is True
     assert "check_login_status" in outcome.session.messages[-1].text
+
+
+def test_dynamic_mcp_tool_permission_resume_with_empty_structured_input_succeeds(tmp_path):
+    store = SessionStore(root_dir=tmp_path / "sessions")
+    processor = build_processor(store)
+    session = store.create(cwd=str(tmp_path), model="glm-4.5", provider_name="test-provider")
+    store.save(session)
+    services = processor.tool_runtime.services_for(session)
+
+    from claude_code_thy.mcp.types import McpToolDefinition
+
+    class DummyMgr:
+        async def refresh_all(self):
+            return []
+
+        def cached_tools(self):
+            return {
+                "xiaohongshu-mcp": [
+                    McpToolDefinition(
+                        name="check_login_status",
+                        description="check login",
+                        input_schema={"type": "object", "properties": {}, "required": []},
+                        annotations={"original_name": "check_login_status"},
+                    )
+                ]
+            }
+
+        def cached_prompts(self):
+            return {}
+
+        def cached_resources(self):
+            return {}
+
+        async def call_tool(self, server_name, tool_name, arguments=None):
+            return {"content": f"{server_name}:{tool_name}:{arguments}"}
+
+    services.mcp_manager = DummyMgr()
+
+    prompted = processor.process(session, "/mcp__xiaohongshu_mcp__check_login_status")
+    pending = prompted.session.runtime_state.get("pending_permission")
+    assert isinstance(pending, dict)
+    assert pending.get("input_data") == {}
+
+    resumed = processor.resume_pending_permission(prompted.session, pending, approved=True)
+
+    assert resumed.message_added is True
+    assert "结构化输入" not in resumed.session.messages[-1].text
+    assert "check_login_status" in resumed.session.messages[-1].text
 
 
 def test_dynamic_mcp_tool_slash_command_tolerates_trailing_punctuation(tmp_path):

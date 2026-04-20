@@ -97,13 +97,9 @@ class AppSettings:
 
     @classmethod
     def load_for_workspace(cls, cwd: Path) -> "AppSettings":
-        settings_path = _resolve_settings_path(cwd)
-        if settings_path is None or not settings_path.exists():
-            return cls()
-
-        try:
-            raw = json.loads(settings_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+        settings_paths = _resolve_settings_paths(cwd)
+        raw = _load_merged_settings_data(settings_paths)
+        if not raw:
             return cls()
 
         return cls(
@@ -198,19 +194,47 @@ def validate_settings_document(data: object) -> list[str]:
     return errors
 
 
-def _resolve_settings_path(cwd: Path) -> Path | None:
+def _resolve_settings_paths(cwd: Path) -> list[Path]:
     configured = os.environ.get("CLAUDE_CODE_THY_SETTINGS")
     if configured:
-        return Path(configured).expanduser().resolve()
+        return [Path(configured).expanduser().resolve()]
 
-    candidates = [
-        cwd / ".claude-code-thy" / "settings.json",
-        cwd / ".claude-code-thy" / "settings.local.json",
+    return [
+        (cwd / ".claude-code-thy" / "settings.json").resolve(),
+        (cwd / ".claude-code-thy" / "settings.local.json").resolve(),
     ]
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
-    return candidates[0]
+
+
+def _load_merged_settings_data(paths: list[Path]) -> dict[str, object]:
+    merged: dict[str, object] = {}
+    for path in paths:
+        if not path.exists():
+            continue
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(raw, dict):
+            continue
+        merged = _merge_settings_value(merged, raw)
+    return merged
+
+
+def _merge_settings_value(
+    base: dict[str, object] | list[object] | object,
+    override: dict[str, object] | list[object] | object,
+):
+    if isinstance(base, dict) and isinstance(override, dict):
+        merged: dict[str, object] = {str(key): value for key, value in base.items()}
+        for key, value in override.items():
+            if key in merged:
+                merged[str(key)] = _merge_settings_value(merged[str(key)], value)
+            else:
+                merged[str(key)] = value
+        return merged
+    if isinstance(base, list) and isinstance(override, list):
+        return [*base, *override]
+    return override
 
 
 def _validate_sandbox_document(data: dict[str, object]) -> list[str]:

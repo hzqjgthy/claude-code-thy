@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 
 from claude_code_thy.tools.base import Tool, ToolContext, ToolError, ToolResult
-from claude_code_thy.tools.shared.common import _make_parser, _parse_args, _truncate
+from claude_code_thy.tools.shared.common import _make_parser, _optional_stripped, _parse_args, _truncate
 
 from .prompt import DESCRIPTION, USAGE
 
@@ -75,8 +75,9 @@ class AgentTool(Tool):
         prompt = str(input_data.get("prompt", "")).strip()
         if not prompt:
             raise ToolError("tool input 缺少 prompt")
-        description = str(input_data.get("description", "")).strip() or f"Agent: {prompt[:48]}"
-        model = str(input_data.get("model", "")).strip() or None
+        session = context.services.command_session_for(context.session_id)
+        description = _optional_stripped(input_data.get("description")) or f"Agent: {prompt[:48]}"
+        model = _optional_stripped(input_data.get("model")) or session.model or None
         run_in_background = bool(input_data.get("run_in_background", False))
         wait_timeout_ms = int(input_data.get("wait_timeout_ms", DEFAULT_FOREGROUND_WAIT_MS) or DEFAULT_FOREGROUND_WAIT_MS)
 

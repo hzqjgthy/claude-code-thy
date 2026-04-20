@@ -21,6 +21,7 @@ class CommandOutcome:
     should_refresh_only: bool = False
     submit_prompt: str | None = None
     model_override: str | None = None
+    suppress_task_notifications: bool = False
 
 
 class CommandProcessor:
@@ -59,9 +60,17 @@ class CommandProcessor:
         if command == "/mcp":
             return self._append_message(session, self._mcp_text(session))
         if command == "/tasks":
-            return self._append_message(session, self._tasks_text(session))
+            return self._append_message(
+                session,
+                self._tasks_text(session),
+                suppress_task_notifications=True,
+            )
         if command == "/agents":
-            return self._append_message(session, self._agents_text(session))
+            return self._append_message(
+                session,
+                self._agents_text(session),
+                suppress_task_notifications=True,
+            )
         if command == "/agent":
             return self._run_tool(session, "agent", raw_args, event_handler=event_handler)
         if command == "/agent-run":
@@ -163,7 +172,8 @@ class CommandProcessor:
             return CommandOutcome(session=session, message_added=True)
 
         try:
-            if isinstance(input_data, dict) and input_data:
+            has_structured_input = "input_data" in pending and isinstance(input_data, dict)
+            if has_structured_input:
                 result = self.tool_runtime.execute_input(
                     tool_name,
                     input_data,
@@ -287,10 +297,20 @@ class CommandProcessor:
         self.session_store.save(session)
         return CommandOutcome(session=session, message_added=True)
 
-    def _append_message(self, session: SessionTranscript, text: str) -> CommandOutcome:
+    def _append_message(
+        self,
+        session: SessionTranscript,
+        text: str,
+        *,
+        suppress_task_notifications: bool = False,
+    ) -> CommandOutcome:
         session.add_message("assistant", text)
         self.session_store.save(session)
-        return CommandOutcome(session=session, message_added=True)
+        return CommandOutcome(
+            session=session,
+            message_added=True,
+            suppress_task_notifications=suppress_task_notifications,
+        )
 
     def _help_text(self) -> str:
         return (

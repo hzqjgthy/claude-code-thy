@@ -20,7 +20,7 @@ class EchoProvider(Provider):
 
 
 def test_inline_skill_slash_command_submits_expanded_prompt(tmp_path):
-    skill_dir = tmp_path / ".claude" / "skills" / "review"
+    skill_dir = tmp_path / ".claude-code-thy" / "skills" / "review"
     skill_dir.mkdir(parents=True)
     (skill_dir / "SKILL.md").write_text(
         "---\n"
@@ -41,7 +41,32 @@ def test_inline_skill_slash_command_submits_expanded_prompt(tmp_path):
 
     assert outcome.session.messages[0].role == "user"
     assert "Please review auth-flow carefully." in outcome.session.messages[0].text
-    assert outcome.session.messages[1].text == "echo:Please review auth-flow carefully."
+    assert outcome.session.messages[1].text.startswith("echo:Base directory for this skill:")
+    assert "Please review auth-flow carefully." in outcome.session.messages[1].text
+
+
+def test_old_dot_claude_skills_path_is_not_loaded_by_default(tmp_path):
+    skill_dir = tmp_path / ".claude" / "skills" / "review"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\n"
+        "description: Review a topic\n"
+        "arguments:\n"
+        "  - topic\n"
+        "---\n"
+        "Please review ${topic} carefully.\n",
+        encoding="utf-8",
+    )
+
+    store = SessionStore(root_dir=tmp_path / "sessions")
+    runtime = ConversationRuntime(provider=EchoProvider(), session_store=store)
+    session = store.create(cwd=str(tmp_path), model="dummy", provider_name="echo")
+    store.save(session)
+    services = runtime.tool_runtime.services_for(session)
+
+    commands = services.command_registry.list_user_commands(session, services)
+
+    assert all(command.name != "review" for command in commands)
 
 
 def test_mcp_prompt_slash_command_uses_unified_registry(tmp_path):

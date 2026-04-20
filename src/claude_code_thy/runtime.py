@@ -79,7 +79,8 @@ class ConversationRuntime:
                     approved=resolution,
                     event_handler=tool_event_handler,
                 )
-                self._append_task_notifications(outcome.session)
+                if not outcome.suppress_task_notifications:
+                    self._append_task_notifications(outcome.session)
                 return outcome
             if source_type == "tool_call":
                 session = await self.query_engine.resume_pending_tool_call(
@@ -109,9 +110,11 @@ class ConversationRuntime:
                 if outcome.model_override:
                     session.model = original_model
                     self.session_store.save(session)
-                self._append_task_notifications(session)
+                if not outcome.suppress_task_notifications:
+                    self._append_task_notifications(session)
                 return CommandOutcome(session=session, message_added=True)
-            self._append_task_notifications(outcome.session)
+            if not outcome.suppress_task_notifications:
+                self._append_task_notifications(outcome.session)
             return outcome
 
         explicit_tool = self._match_explicit_tool_request(session, prompt)

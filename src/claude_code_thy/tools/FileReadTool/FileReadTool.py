@@ -12,7 +12,9 @@ from claude_code_thy.tools.shared.common import (
     _is_blocked_device_path,
     _make_parser,
     _missing_path_error,
+    _optional_stripped,
     _parse_args,
+    _path_permission_result,
     _remember_read,
     _resolve_path,
     _truncate,
@@ -74,20 +76,7 @@ class ReadTool(Tool):
         context: ToolContext,
     ) -> PermissionResult:
         file_path = str(input_data.get("file_path", "")).strip()
-        path = _candidate_path(context, file_path, allow_missing=True)
-        decision = context.permission_context.check_path(self.name, path)
-        if decision is None or (decision.allowed and not decision.requires_confirmation):
-            return PermissionResult.allow(updated_input=input_data)
-        if decision.requires_confirmation:
-            return PermissionResult.ask(
-                context.permission_context.build_request_for_path(
-                    self.name,
-                    path,
-                    reason=decision.reason,
-                ),
-                updated_input=input_data,
-            )
-        return PermissionResult.deny(decision.reason or f"{self.name} 被权限规则拒绝")
+        return _path_permission_result(self.name, file_path, context, input_data)
 
     def prepare_permission_matcher(self, input_data: dict[str, object], context: ToolContext):
         file_path = str(input_data.get("file_path", "")).strip()
@@ -112,7 +101,7 @@ class ReadTool(Tool):
         offset = int(input_data.get("offset", 1) or 1)
         limit_raw = input_data.get("limit")
         limit = None if limit_raw in (None, "") else int(limit_raw)
-        pages = str(input_data.get("pages", "")).strip() or None
+        pages = _optional_stripped(input_data.get("pages"))
         return self._read(
             context,
             file_path=file_path,

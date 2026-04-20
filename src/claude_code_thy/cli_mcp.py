@@ -11,6 +11,7 @@ from rich.table import Table
 
 from claude_code_thy.mcp import (
     McpClientManager,
+    McpRuntimeError,
     add_project_mcp_server,
     get_project_mcp_config_path,
     remove_project_mcp_server,
@@ -21,6 +22,27 @@ from claude_code_thy.settings import AppSettings
 
 mcp_app = typer.Typer(help="MCP management")
 console = Console(stderr=True)
+
+
+def _is_unsupported_capability_error(error: McpRuntimeError) -> bool:
+    return "method not found" in str(error).lower()
+
+
+def _load_optional_capability(loader):
+    try:
+        return asyncio.run(loader()), False
+    except McpRuntimeError as error:
+        if _is_unsupported_capability_error(error):
+            return None, True
+        raise
+
+
+def _format_named_items(items, *, unsupported: bool) -> str:
+    if unsupported:
+        return "(unsupported)"
+    if not items:
+        return "(none)"
+    return ", ".join(str(getattr(item, "name", "")) for item in items if str(getattr(item, "name", "")).strip()) or "(none)"
 
 
 def _manager_for_cwd() -> tuple[Path, McpClientManager]:
@@ -84,12 +106,12 @@ def get_mcp(
         return
 
     if connection.status == "connected":
-        tools = asyncio.run(manager.list_tools(name))
-        prompts = asyncio.run(manager.list_prompts(name))
-        resources = asyncio.run(manager.list_resources(name))
-        console.print(f"[bold]Tools:[/bold] {', '.join(tool.name for tool in tools) or '(none)'}")
-        console.print(f"[bold]Prompts:[/bold] {', '.join(prompt.name for prompt in prompts) or '(none)'}")
-        console.print(f"[bold]Resources:[/bold] {', '.join(resource.name for resource in resources) or '(none)'}")
+        tools, tools_unsupported = _load_optional_capability(lambda: manager.list_tools(name))
+        prompts, prompts_unsupported = _load_optional_capability(lambda: manager.list_prompts(name))
+        resources, resources_unsupported = _load_optional_capability(lambda: manager.list_resources(name))
+        console.print(f"[bold]Tools:[/bold] {_format_named_items(tools, unsupported=tools_unsupported)}")
+        console.print(f"[bold]Prompts:[/bold] {_format_named_items(prompts, unsupported=prompts_unsupported)}")
+        console.print(f"[bold]Resources:[/bold] {_format_named_items(resources, unsupported=resources_unsupported)}")
 
 
 @mcp_app.command("add-json")

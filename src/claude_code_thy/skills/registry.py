@@ -176,7 +176,7 @@ class PromptCommandRegistry:
 
     def _local_root_dirs(self) -> list[Path]:
         roots: list[Path] = []
-        default_root = self.workspace_root / ".claude" / "skills"
+        default_root = self.workspace_root / ".claude-code-thy" / "skills"
         if default_root.exists():
             roots.append(default_root.resolve())
         for configured in self.settings.search_roots:

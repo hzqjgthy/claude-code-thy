@@ -79,6 +79,15 @@ def truncate_single_line(text: str, limit: int = 120) -> str:
     return f"{collapsed[: limit - 1]}…"
 
 
+def combine_text_lines(lines: list[Text]) -> Text:
+    combined = Text()
+    for index, line in enumerate(lines):
+        if index > 0:
+            combined.append("\n")
+        combined.append_text(line)
+    return combined
+
+
 def tool_label(tool_name: str) -> str:
     if tool_name.startswith("mcp__"):
         parts = tool_name.split("__", 2)
@@ -187,17 +196,21 @@ def build_tool_result_message(metadata: dict[str, object]) -> RenderableType:
         Text(label, style=label_style),
         Text(f" {truncate_single_line(summary)}", style="#9aa4b2"),
     )
-    renderables: list[RenderableType] = [Text(""), body]
+    text_lines: list[Text] = [body]
 
-    summary_text = tool_result_summary(structured_data, output)
+    summary_text = tool_result_summary(structured_data, output, summary=summary)
     if summary_text:
-        renderables.append(Text(f"  {summary_text}", style="#d7e3f4"))
+        text_lines.append(Text(f"  {summary_text}", style="#d7e3f4"))
 
     tool_name = str(metadata.get("tool_name", ""))
     extra_renderer = TOOL_EXTRA_RESULT_LINES.get(tool_name)
     if extra_renderer is not None:
         for line in extra_renderer(metadata):
-            renderables.append(Text(f"  {truncate_single_line(line)}", style="#d7e3f4"))
+            text_lines.append(Text(f"  {truncate_single_line(line)}", style="#d7e3f4"))
+
+    renderables: list[RenderableType] = [Text("")]
+    if text_lines:
+        renderables.append(combine_text_lines(text_lines))
 
     if preview:
         renderables.append(
@@ -221,7 +234,7 @@ def build_tool_result_message(metadata: dict[str, object]) -> RenderableType:
     return Group(*renderables)
 
 
-def tool_result_summary(structured_data: object, fallback_output: str) -> str:
+def tool_result_summary(structured_data: object, fallback_output: str, *, summary: str = "") -> str:
     if not isinstance(structured_data, dict):
         return truncate_single_line(fallback_output) if fallback_output else ""
 
@@ -271,7 +284,14 @@ def tool_result_summary(structured_data: object, fallback_output: str) -> str:
         status = structured_data.get("status", "running")
         return f"Agent {status}: {task_id}"
     if structured_data.get("description"):
-        return truncate_single_line(str(structured_data["description"]))
+        description = truncate_single_line(str(structured_data["description"]))
+        command = truncate_single_line(str(structured_data.get("command", "")).strip())
+        summary_single_line = truncate_single_line(summary) if summary else ""
+        if command and description == command:
+            return ""
+        if summary_single_line and description and description in summary_single_line:
+            return ""
+        return description
     return truncate_single_line(fallback_output) if fallback_output else ""
 
 

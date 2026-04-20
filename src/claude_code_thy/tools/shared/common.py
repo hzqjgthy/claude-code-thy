@@ -12,7 +12,13 @@ import subprocess
 from pathlib import Path
 from tempfile import mkdtemp
 
-from claude_code_thy.tools.base import FileReadState, ToolContext, ToolError
+from claude_code_thy.tools.base import (
+    FileReadState,
+    PermissionRequiredError,
+    PermissionResult,
+    ToolContext,
+    ToolError,
+)
 
 MAX_TOOL_OUTPUT_CHARS = 6000
 MAX_RESULT_PREVIEW_CHARS = 2000
@@ -45,6 +51,13 @@ def _truncate(text: str, limit: int = MAX_TOOL_OUTPUT_CHARS) -> str:
     if len(text) <= limit:
         return text
     return f"{text[:limit]}\n... [truncated]"
+
+
+def _optional_stripped(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
 
 
 def _format_bytes(size: int) -> str:
@@ -221,6 +234,24 @@ def _candidate_path(
     except FileNotFoundError:
         resolved = path.resolve(strict=False)
     return resolved
+
+
+def _path_permission_result(
+    tool_name: str,
+    raw_path: str,
+    context: ToolContext,
+    input_data: dict[str, object],
+    *,
+    allow_missing: bool = True,
+) -> PermissionResult:
+    path = _candidate_path(context, raw_path, allow_missing=allow_missing)
+    try:
+        context.permission_context.require_path(tool_name, path)
+    except PermissionRequiredError as error:
+        return PermissionResult.ask(error.request, updated_input=input_data)
+    except ToolError as error:
+        return PermissionResult.deny(str(error), updated_input=input_data)
+    return PermissionResult.allow(updated_input=input_data)
 
 
 def _looks_ignored(relative_path: str, ignore_patterns: tuple[str, ...]) -> bool:
