@@ -1,8 +1,11 @@
 import asyncio
+import json
 
 from claude_code_thy.mcp.types import McpToolDefinition
 from claude_code_thy.models import SessionTranscript
+from claude_code_thy.config import AppConfig
 from claude_code_thy.providers.base import Provider, ProviderResponse, ToolCallRequest
+from claude_code_thy.providers.openai_responses import OpenAIResponsesProvider
 from claude_code_thy.query_engine import QueryEngine
 from claude_code_thy.runtime import ConversationRuntime
 from claude_code_thy.session.store import SessionStore
@@ -83,6 +86,86 @@ def test_query_engine_runs_tool_loop(tmp_path):
     assert roles == ["user", "assistant", "tool", "assistant"]
     assert "tool loop content" in updated.messages[2].text
     assert updated.messages[-1].text == "我已经读取了文件内容。"
+
+
+class _FakeOpenAIResponse:
+    def __init__(self, payload: dict[str, object]) -> None:
+        self._body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def read(self) -> bytes:
+        return self._body
+
+
+def test_query_engine_runs_tool_loop_with_openai_responses_provider(monkeypatch, tmp_path):
+    captured_payloads: list[dict[str, object]] = []
+    readme = tmp_path / "README.md"
+    readme.write_text("tool loop content", encoding="utf-8")
+    store = SessionStore(root_dir=tmp_path / "sessions")
+    session = store.create(cwd=str(tmp_path), model="gpt-5.4", provider_name="openai-responses-compatible")
+    provider = OpenAIResponsesProvider(
+        AppConfig(
+            provider="openai-responses-compatible",
+            model="gpt-5.4",
+            openai_responses_api_key="test-openai-key",
+            openai_responses_base_url="https://example.com",
+        )
+    )
+    engine = QueryEngine(
+        provider=provider,
+        session_store=store,
+        tool_runtime=ToolRuntime(build_builtin_tools()),
+    )
+
+    def fake_urlopen(request, timeout):
+        _ = timeout
+        payload = json.loads(request.data.decode("utf-8"))
+        captured_payloads.append(payload)
+        if len(captured_payloads) == 1:
+            return _FakeOpenAIResponse(
+                {
+                    "output": [
+                        {
+                            "type": "function_call",
+                            "call_id": "call_read_1",
+                            "name": "read",
+                            "arguments": "{\"file_path\":\"README.md\",\"offset\":1,\"limit\":20}",
+                        }
+                    ]
+                }
+            )
+        return _FakeOpenAIResponse(
+            {
+                "output": [
+                    {
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [{"type": "output_text", "text": "我已经读取了文件内容。"}],
+                    }
+                ]
+            }
+        )
+
+    monkeypatch.setattr("claude_code_thy.providers.openai_responses.urlopen", fake_urlopen)
+
+    updated = asyncio.run(engine.submit(session, "请读取 README.md"))
+
+    roles = [message.role for message in updated.messages]
+    assert roles == ["user", "assistant", "tool", "assistant"]
+    assert "tool loop content" in updated.messages[2].text
+    assert updated.messages[-1].text == "我已经读取了文件内容。"
+    assert len(captured_payloads) == 2
+    second_input = captured_payloads[1]["input"]
+    assert any(
+        item.get("type") == "function_call_output" and item.get("call_id") == "call_read_1"
+        for item in second_input
+        if isinstance(item, dict)
+    )
 
 
 class DummyProvider(Provider):
