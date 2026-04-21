@@ -19,6 +19,7 @@ class AppConfig:
     openai_responses_base_url: str = "https://api.openai.com"
     openai_responses_reasoning_effort: str | None = None
     openai_responses_enable_stream: bool = False
+    openai_responses_use_previous_response_id: bool = False
     api_timeout_ms: int = 600_000
     max_tokens: int = 4096
 
@@ -37,6 +38,7 @@ class AppConfig:
         openai_base_url = os.environ.get("OPENAI_RESPONSES_BASE_URL", "https://api.openai.com")
         openai_reasoning_effort = os.environ.get("OPENAI_RESPONSES_REASONING_EFFORT", "").strip() or None
         openai_enable_stream = _bool_env("OPENAI_RESPONSES_ENABLE_STREAM", default=False)
+        openai_use_previous_response_id = _bool_env("OPENAI_RESPONSES_USE_PREVIOUS_RESPONSE_ID", default=False)
         timeout_ms = _int_env("API_TIMEOUT_MS", default=600_000)
         max_tokens = _int_env("CLAUDE_CODE_THY_MAX_TOKENS", default=4096)
 
@@ -62,6 +64,7 @@ class AppConfig:
             openai_responses_base_url=openai_base_url,
             openai_responses_reasoning_effort=openai_reasoning_effort,
             openai_responses_enable_stream=openai_enable_stream,
+            openai_responses_use_previous_response_id=openai_use_previous_response_id,
             api_timeout_ms=timeout_ms,
             max_tokens=max_tokens,
         )

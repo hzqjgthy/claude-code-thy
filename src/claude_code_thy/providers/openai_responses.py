@@ -12,6 +12,7 @@ from claude_code_thy.tools.base import ToolSpec
 
 
 DEFAULT_OPENAI_RESPONSES_USER_AGENT = "python-requests/2.31.0"
+OPENAI_RESPONSES_STATE_KEY = "openai_responses"
 
 
 class OpenAIResponsesProvider(Provider):
@@ -36,34 +37,21 @@ class OpenAIResponsesProvider(Provider):
             raise ProviderError(
                 "当前 openai-responses provider 暂未启用流式聚合，请先将 OPENAI_RESPONSES_ENABLE_STREAM=false。"
             )
-        payload = {
-            "model": session.model or self.config.model,
-            "input": self._build_input(session),
-            "stream": False,
-            "parallel_tool_calls": False,
-            "max_output_tokens": self.config.max_tokens,
-        }
-        if tools:
-            payload["tools"] = [self._tool_to_api(tool) for tool in tools]
-        if self.config.openai_responses_reasoning_effort:
-            payload["reasoning"] = {"effort": self.config.openai_responses_reasoning_effort}
-
-        request = Request(
-            self._build_endpoint(self.config.openai_responses_base_url),
-            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-            headers=self._headers(),
-            method="POST",
-        )
+        state = self._provider_state(session)
+        payload = self._build_payload(session, tools)
 
         try:
-            with urlopen(request, timeout=self.config.api_timeout_ms / 1000) as response:
-                data = json.loads(response.read().decode("utf-8"))
+            data = self._send_payload(payload)
         except HTTPError as error:
-            try:
-                message = error.read().decode("utf-8", errors="replace")
-            except Exception:
-                message = str(error)
-            raise ProviderError(f"HTTP {error.code}: {message}") from error
+            if "previous_response_id" in payload:
+                state["use_previous_response_id"] = False
+                fallback_payload = self._build_payload(session, tools, force_full_history=True)
+                try:
+                    data = self._send_payload(fallback_payload)
+                except HTTPError as fallback_error:
+                    raise self._http_error(fallback_error) from fallback_error
+            else:
+                raise self._http_error(error) from error
         except URLError as error:
             raise ProviderError(f"网络错误：{error}") from error
         except json.JSONDecodeError as error:
@@ -82,11 +70,88 @@ class OpenAIResponsesProvider(Provider):
         if not display_text and not tool_calls:
             raise ProviderError("响应中没有可显示文本或可执行工具调用")
 
+        response_id = str(data.get("id", "")).strip()
+        if response_id:
+            state["last_response_id"] = response_id
+            state["last_response_message_count"] = len(session.messages) + 1
+
         return ProviderResponse(
             display_text=display_text,
             content_blocks=output,
             tool_calls=tool_calls,
         )
+
+    def _build_payload(
+        self,
+        session: SessionTranscript,
+        tools: list[ToolSpec],
+        *,
+        force_full_history: bool = False,
+    ) -> dict[str, object]:
+        payload = {
+            "model": session.model or self.config.model,
+            "stream": False,
+            "parallel_tool_calls": False,
+            "max_output_tokens": self.config.max_tokens,
+        }
+
+        previous_response_id = None if force_full_history else self._previous_response_id_for_request(session)
+        if previous_response_id:
+            payload["previous_response_id"] = previous_response_id
+            payload["input"] = self._build_incremental_input(session)
+        else:
+            payload["input"] = self._build_input(session)
+
+        if tools:
+            payload["tools"] = [self._tool_to_api(tool) for tool in tools]
+        if self.config.openai_responses_reasoning_effort:
+            payload["reasoning"] = {"effort": self.config.openai_responses_reasoning_effort}
+        return payload
+
+    def _send_payload(self, payload: dict[str, object]) -> dict[str, object]:
+        request = Request(
+            self._build_endpoint(self.config.openai_responses_base_url),
+            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            headers=self._headers(),
+            method="POST",
+        )
+        with urlopen(request, timeout=self.config.api_timeout_ms / 1000) as response:
+            return json.loads(response.read().decode("utf-8"))
+
+    def _previous_response_id_for_request(self, session: SessionTranscript) -> str | None:
+        if not self.config.openai_responses_use_previous_response_id:
+            return None
+        state = self._provider_state(session)
+        if state.get("use_previous_response_id", True) is False:
+            return None
+        response_id = str(state.get("last_response_id", "")).strip()
+        if not response_id:
+            return None
+        message_count = state.get("last_response_message_count")
+        if not isinstance(message_count, int):
+            return None
+        if message_count < 0 or message_count > len(session.messages):
+            return None
+        return response_id
+
+    def _build_incremental_input(self, session: SessionTranscript) -> list[dict[str, object]]:
+        state = self._provider_state(session)
+        message_count = state.get("last_response_message_count")
+        if not isinstance(message_count, int):
+            return self._build_input(session)
+        new_messages = session.messages[message_count:]
+        items: list[dict[str, object]] = []
+        for message in new_messages:
+            items.extend(self._message_to_input_items(message))
+        return items
+
+    def _provider_state(self, session: SessionTranscript) -> dict[str, object]:
+        state = session.runtime_state.get(OPENAI_RESPONSES_STATE_KEY)
+        if isinstance(state, dict):
+            return state
+        fresh: dict[str, object] = {}
+        session.runtime_state[OPENAI_RESPONSES_STATE_KEY] = fresh
+        return fresh
 
     def _build_input(self, session: SessionTranscript) -> list[dict[str, object]]:
         items: list[dict[str, object]] = []
@@ -106,7 +171,12 @@ class OpenAIResponsesProvider(Provider):
     def _assistant_items(self, message: ChatMessage) -> list[dict[str, object]]:
         items: list[dict[str, object]] = []
         if message.text.strip():
-            items.append(self._message_item("assistant", message.text))
+            items.append(
+                self._message_item(
+                    "user",
+                    f"上一轮助手回复（仅作上下文参考）：\n{message.text}",
+                )
+            )
         for tool_call in self._tool_calls_from_message(message):
             call_id = str(tool_call.get("id") or tool_call.get("call_id") or "").strip()
             name = str(tool_call.get("name", "")).strip()
@@ -225,27 +295,12 @@ class OpenAIResponsesProvider(Provider):
         return calls
 
     def _tool_to_api(self, tool: ToolSpec) -> dict[str, object]:
-        parameters = self._parameters_for_tool(tool)
         return {
             "type": "function",
             "name": tool.name,
             "description": tool.description,
-            "parameters": parameters,
+            "parameters": tool.input_schema,
             "strict": False,
-        }
-
-    def _parameters_for_tool(self, tool: ToolSpec) -> dict[str, object]:
-        if tool.name != "edit":
-            return tool.input_schema
-        return {
-            "type": "object",
-            "properties": {
-                "file_path": {"type": "string", "description": "File to edit."},
-                "old_string": {"type": "string", "description": "Exact text to replace."},
-                "new_string": {"type": "string", "description": "Replacement text."},
-                "replace_all": {"type": "boolean", "description": "Replace every match instead of one."},
-            },
-            "required": ["file_path", "old_string", "new_string"],
         }
 
     def _headers(self) -> dict[str, str]:
@@ -305,3 +360,10 @@ class OpenAIResponsesProvider(Provider):
                 return message
             return json.dumps(error, ensure_ascii=False)
         return str(error)
+
+    def _http_error(self, error: HTTPError) -> ProviderError:
+        try:
+            message = error.read().decode("utf-8", errors="replace")
+        except Exception:
+            message = str(error)
+        return ProviderError(f"HTTP {error.code}: {message}")

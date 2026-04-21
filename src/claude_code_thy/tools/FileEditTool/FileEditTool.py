@@ -32,7 +32,25 @@ class EditTool(Tool):
             "replace_all": {"type": "boolean", "description": "Replace every match instead of one."},
             "edits": {
                 "type": "array",
-                "description": "Optional list of edit instructions.",
+                "description": "Alternative to old_string/new_string: a list of edit instructions.",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "old_string": {
+                            "type": "string",
+                            "description": "Exact text to replace.",
+                        },
+                        "new_string": {
+                            "type": "string",
+                            "description": "Replacement text.",
+                        },
+                        "replace_all": {
+                            "type": "boolean",
+                            "description": "Replace every match instead of one.",
+                        },
+                    },
+                    "required": ["old_string", "new_string"],
+                },
             },
         },
         "required": ["file_path"],

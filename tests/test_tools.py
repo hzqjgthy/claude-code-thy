@@ -4,7 +4,7 @@ from claude_code_thy.models import SessionTranscript
 from claude_code_thy.mcp.client import _ManagedConnection
 from claude_code_thy.mcp.config import add_project_mcp_server
 from claude_code_thy.mcp.types import McpResourceDefinition, McpToolDefinition
-from claude_code_thy.tools import ToolRuntime, build_builtin_tools
+from claude_code_thy.tools import ToolError, ToolRuntime, build_builtin_tools
 
 
 def build_runtime() -> ToolRuntime:
@@ -154,6 +154,42 @@ def test_edit_tool_supports_structured_edits(tmp_path):
     assert result.ok is True
     assert result.metadata["num_edits"] == 2
     assert path.read_text(encoding="utf-8") == "ALPHA\nBETA\n"
+
+
+def test_edit_tool_schema_defines_structured_edits_items():
+    runtime = build_runtime()
+    specs = runtime.list_tool_specs()
+    edit_spec = next(spec for spec in specs if spec.name == "edit")
+
+    edits_schema = edit_spec.input_schema["properties"]["edits"]
+    items_schema = edits_schema["items"]
+
+    assert edits_schema["type"] == "array"
+    assert items_schema["type"] == "object"
+    assert items_schema["required"] == ["old_string", "new_string"]
+    assert items_schema["properties"]["old_string"]["type"] == "string"
+    assert items_schema["properties"]["new_string"]["type"] == "string"
+    assert items_schema["properties"]["replace_all"]["type"] == "boolean"
+    assert "anyOf" not in edit_spec.input_schema
+
+
+def test_edit_tool_schema_validation_requires_old_new_or_edits(tmp_path):
+    runtime = build_runtime()
+    session = SessionTranscript(session_id="test", cwd=str(tmp_path))
+
+    try:
+        runtime.execute_input(
+            "edit",
+            {
+                "file_path": "app.py",
+            },
+            session,
+        )
+    except ToolError as error:
+        assert "old_string/new_string" in str(error)
+        assert "edits" in str(error)
+    else:
+        raise AssertionError("Expected ToolError")
 
 
 def test_write_tool_returns_git_diff_when_in_repo(tmp_path):
