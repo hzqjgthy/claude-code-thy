@@ -3,10 +3,12 @@ from claude_code_thy.tools import PermissionRequiredError, ToolRuntime, build_bu
 
 
 def build_runtime() -> ToolRuntime:
+    """构建 `runtime`。"""
     return ToolRuntime(build_builtin_tools())
 
 
 def test_bash_grep_no_matches_is_not_error(tmp_path):
+    """测试 `bash_grep_no_matches_is_not_error` 场景。"""
     runtime = build_runtime()
     session = SessionTranscript(session_id="bash-1", cwd=str(tmp_path))
     (tmp_path / "README.md").write_text("hello\nworld\n", encoding="utf-8")
@@ -22,6 +24,7 @@ def test_bash_grep_no_matches_is_not_error(tmp_path):
 
 
 def test_bash_multiple_cd_requires_permission(tmp_path):
+    """测试 `bash_multiple_cd_requires_permission` 场景。"""
     runtime = build_runtime()
     session = SessionTranscript(session_id="bash-2", cwd=str(tmp_path))
 
@@ -38,6 +41,7 @@ def test_bash_multiple_cd_requires_permission(tmp_path):
 
 
 def test_bash_sed_in_place_generates_edit_preview(tmp_path):
+    """测试 `bash_sed_in_place_generates_edit_preview` 场景。"""
     runtime = build_runtime()
     session = SessionTranscript(session_id="bash-3", cwd=str(tmp_path))
     path = tmp_path / "sample.txt"
@@ -57,6 +61,7 @@ def test_bash_sed_in_place_generates_edit_preview(tmp_path):
 
 
 def test_bash_advanced_shell_syntax_requires_permission(tmp_path):
+    """测试 `bash_advanced_shell_syntax_requires_permission` 场景。"""
     runtime = build_runtime()
     session = SessionTranscript(session_id="bash-4", cwd=str(tmp_path))
 
@@ -73,6 +78,7 @@ def test_bash_advanced_shell_syntax_requires_permission(tmp_path):
 
 
 def test_bash_without_description_uses_command_in_summary(tmp_path):
+    """测试 `bash_without_description_uses_command_in_summary` 场景。"""
     runtime = build_runtime()
     session = SessionTranscript(session_id="bash-5", cwd=str(tmp_path))
 

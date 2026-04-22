@@ -25,6 +25,7 @@ def load_edit_target(
     file_path: str,
     old_string: str,
 ) -> tuple[str, TextFileSnapshot | None]:
+    """加载 `edit_target`。"""
     if path.exists():
         if path.stat().st_size > MAX_EDIT_FILE_SIZE:
             raise ToolError("File is too large to edit safely.")
@@ -50,6 +51,7 @@ def apply_edit(
     new_string: str,
     replace_all: bool,
 ) -> tuple[str, str, str, str, int]:
+    """处理 `apply_edit`。"""
     if old_string == "":
         if original_file.strip():
             raise ToolError("Cannot create new file - file already exists.")
@@ -78,6 +80,7 @@ def apply_edits(
     original_file: str,
     edits: list[EditInstruction],
 ) -> tuple[str, list[dict[str, object]], str]:
+    """处理 `apply_edits`。"""
     updated_file = original_file
     details: list[dict[str, object]] = []
     operation = "update"
@@ -122,6 +125,7 @@ def persist_edit(
     operation: str,
     snapshot: TextFileSnapshot | None,
 ) -> None:
+    """处理 `persist_edit`。"""
     path.parent.mkdir(parents=True, exist_ok=True)
     write_text_snapshot(
         path,

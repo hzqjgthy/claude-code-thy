@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import re
-
 from claude_code_thy.commands import CommandProcessor, CommandOutcome
 from claude_code_thy.models import SessionTranscript
 from claude_code_thy.providers.base import Provider
@@ -16,20 +14,30 @@ from claude_code_thy.tools import ToolError, ToolEventHandler, ToolRuntime, buil
 
 
 class ConversationRuntime:
+    """串起 slash 命令、普通对话、权限确认和任务通知的总入口。"""
     def __init__(
         self,
         *,
         provider: Provider,
         session_store: SessionStore,
+        query_max_iterations: int | None = None,
     ) -> None:
+        """创建对话运行所需的工具运行时、命令处理器和查询引擎。"""
         self.provider = provider
         self.session_store = session_store
         self.tool_runtime = ToolRuntime(build_builtin_tools())
         self.command_processor = CommandProcessor(session_store, self.tool_runtime)
+        resolved_query_max_iterations = query_max_iterations
+        if resolved_query_max_iterations is None:
+            provider_config = getattr(provider, "config", None)
+            configured_value = getattr(provider_config, "query_max_iterations", None)
+            if isinstance(configured_value, int):
+                resolved_query_max_iterations = configured_value
         self.query_engine = QueryEngine(
             provider=provider,
             session_store=session_store,
             tool_runtime=self.tool_runtime,
+            max_iterations=resolved_query_max_iterations or 1000,
         )
 
     async def handle(
@@ -39,6 +47,7 @@ class ConversationRuntime:
         *,
         tool_event_handler: ToolEventHandler | None = None,
     ) -> CommandOutcome:
+        """处理一条用户输入，并决定走命令、权限恢复还是正常对话。"""
         prompt = prompt.strip()
         if not prompt:
             return CommandOutcome(session=session)
@@ -117,23 +126,6 @@ class ConversationRuntime:
                 self._append_task_notifications(outcome.session)
             return outcome
 
-        explicit_tool = self._match_explicit_tool_request(session, prompt)
-        if explicit_tool is not None:
-            session.add_message(
-                "user",
-                prompt,
-                content_blocks=[{"type": "text", "text": prompt}],
-            )
-            self.session_store.save(session)
-            outcome = self.command_processor.run_tool_input(
-                session,
-                explicit_tool,
-                {},
-                event_handler=tool_event_handler,
-            )
-            self._append_task_notifications(outcome.session)
-            return outcome
-
         session = await self.query_engine.submit(
             session,
             prompt,
@@ -143,6 +135,7 @@ class ConversationRuntime:
         return CommandOutcome(session=session, message_added=True)
 
     def _parse_permission_response(self, prompt: str) -> bool | None:
+        """把用户输入解析成允许、拒绝或无法识别的权限回应。"""
         normalized = prompt.strip().lower()
         if normalized in {
             "y",
@@ -172,6 +165,7 @@ class ConversationRuntime:
         return None
 
     def _append_task_notifications(self, session: SessionTranscript) -> None:
+        """把当前会话关联的后台任务完成通知追加到消息流中。"""
         try:
             manager = self.tool_runtime.services_for(session).task_manager
         except ToolError:
@@ -218,6 +212,7 @@ class ConversationRuntime:
             self.session_store.save(session)
 
     def _status_cn(self, status: str) -> str:
+        """把内部任务状态码转换成更直观的中文描述。"""
         mapping = {
             "completed": "完成",
             "failed": "失败",
@@ -227,26 +222,3 @@ class ConversationRuntime:
             "pending": "等待",
         }
         return mapping.get(status, status)
-
-    def _match_explicit_tool_request(
-        self,
-        session: SessionTranscript,
-        prompt: str,
-    ) -> str | None:
-        lowered = prompt.lower()
-        if not any(marker in prompt for marker in ("使用", "调用", "执行")) and not any(
-            marker in lowered for marker in ("use ", "call ", "run ")
-        ):
-            return None
-        matches: list[str] = []
-        for tool in self.tool_runtime.list_tools_for_session(session):
-            if not tool.name.startswith("mcp__"):
-                continue
-            if tool.name not in prompt:
-                continue
-            required = tool.input_schema.get("required", [])
-            if isinstance(required, list) and len(required) == 0:
-                matches.append(tool.name)
-        if len(matches) == 1:
-            return matches[0]
-        return None

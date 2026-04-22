@@ -27,30 +27,38 @@ from claude_code_thy.tools.base import (
 )
 
 class ToolRuntime:
+    """负责为每个会话解析、执行并动态扩展可用工具。"""
     def __init__(self, tools: list[Tool]) -> None:
+        """注册内置工具，并为后续会话执行准备状态缓存。"""
         self._tools = {tool.name: tool for tool in tools}
         self._session_states: dict[str, RuntimeSessionState] = {}
 
     def list_tools(self) -> list[Tool]:
+        """返回所有静态注册的内置工具。"""
         return [self._tools[name] for name in sorted(self._tools)]
 
     def list_tool_specs(self) -> list[ToolSpec]:
+        """导出全部静态工具的 schema 描述。"""
         return [tool.to_spec() for tool in self.list_tools()]
 
     def list_tools_for_session(self, session: SessionTranscript) -> list[Tool]:
+        """返回某个会话当前真正可用的工具，包含动态 MCP 工具。"""
         dynamic = self._dynamic_tools_for_session(session)
         tools = {tool.name: tool for tool in self.list_tools()}
         tools.update({tool.name: tool for tool in dynamic})
         return [tools[name] for name in sorted(tools)]
 
     def list_tool_specs_for_session(self, session: SessionTranscript) -> list[ToolSpec]:
+        """导出某个会话可见工具的完整 schema 列表。"""
         context = self._build_context(session, None)
         return [tool.to_spec_for_context(context) for tool in self.list_tools_for_session(session)]
 
     def has_tool_for_session(self, session: SessionTranscript, tool_name: str) -> bool:
+        """判断某个工具名在当前会话里是否可解析。"""
         return self._resolve_tool(session, tool_name) is not None
 
     def services_for(self, session: SessionTranscript) -> ToolServices:
+        """取回当前会话绑定的共享服务容器。"""
         context = self._build_context(session, None)
         if context.services is None:
             raise ToolError("工具服务未初始化")
@@ -65,6 +73,7 @@ class ToolRuntime:
         tool_use_id: str | None = None,
         event_handler: ToolEventHandler | None = None,
     ) -> ToolResult:
+        """执行 slash 命令风格的工具调用，先把原始参数解析成结构化输入。"""
         tool = self._resolve_tool(session, tool_name)
         if tool is None:
             raise ToolError(f"未找到工具：{tool_name}")
@@ -90,6 +99,7 @@ class ToolRuntime:
         original_input: dict[str, object] | None = None,
         event_handler: ToolEventHandler | None = None,
     ) -> ToolResult:
+        """直接执行结构化工具输入。"""
         tool = self._resolve_tool(session, tool_name)
         if tool is None:
             raise ToolError(f"未找到工具：{tool_name}")
@@ -113,6 +123,7 @@ class ToolRuntime:
         tool_use_id: str | None = None,
         original_input: dict[str, object] | None = None,
     ) -> ToolResult:
+        """在用户拒绝权限确认后，生成统一的拒绝工具结果。"""
         tool = self._resolve_tool(session, tool_name)
         if tool is None:
             raise ToolError(f"未找到工具：{tool_name}")
@@ -146,6 +157,7 @@ class ToolRuntime:
         event_handler: ToolEventHandler | None,
         original_input: dict[str, object] | None = None,
     ) -> ToolResult:
+        """串起输入校验、权限判断、真正执行和结果收尾的完整流程。"""
         base_context = self._build_context(session, event_handler, tool_use_id=tool_use_id)
         original = copy.deepcopy(original_input or input_data)
         candidate = tool.validate_input_data(copy.deepcopy(input_data), base_context)
@@ -213,6 +225,7 @@ class ToolRuntime:
         *,
         tool_use_id: str | None,
     ) -> None:
+        """补齐模型回传内容和搜索文本等派生字段。"""
         result.tool_result_content = tool.map_tool_result_to_model_content(
             result,
             tool_use_id=tool_use_id,
@@ -231,6 +244,7 @@ class ToolRuntime:
         original_input: dict[str, object] | None = None,
         user_modified: bool = False,
     ) -> ToolContext:
+        """为一次工具调用组装上下文，并懒加载共享服务。"""
         cwd = Path(session.cwd).resolve()
         state = self._session_states.setdefault(session.session_id, RuntimeSessionState())
         if state.services is None:
@@ -263,6 +277,7 @@ class ToolRuntime:
         )
 
     def _resolve_tool(self, session: SessionTranscript, tool_name: str) -> Tool | None:
+        """先查静态工具，再按需解析动态 MCP 工具。"""
         tool = self._tools.get(tool_name)
         if tool is not None:
             return tool
@@ -271,6 +286,7 @@ class ToolRuntime:
         return None
 
     def _resolve_mcp_tool(self, session: SessionTranscript, tool_name: str) -> Tool | None:
+        """把 `/mcp__server__tool` 名称映射到具体 MCPTool 包装对象。"""
         context = self._build_context(session, None)
         if context.services is None:
             return None
@@ -303,6 +319,7 @@ class ToolRuntime:
         return None
 
     def _dynamic_tools_for_session(self, session: SessionTranscript) -> list[Tool]:
+        """从 MCP 运行时快照中构造当前会话可见的动态工具列表。"""
         context = self._build_context(session, None)
         if context.services is None:
             return []
@@ -321,6 +338,7 @@ class ToolRuntime:
         return dynamic_tools
 
     def _wrap_mcp_definition(self, server_name: str, definition) -> Tool:
+        """把 MCP 返回的工具定义包装成本地 Tool 实例。"""
         if isinstance(getattr(definition, "annotations", None), dict) and definition.annotations.get("authTool"):
             return McpAuthTool(server_name)
         wrapped = MCPTool(server_name, definition)

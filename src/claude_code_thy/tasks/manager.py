@@ -16,7 +16,9 @@ from claude_code_thy.tasks.types import BackgroundTask, TaskRecord, TaskStatus, 
 
 
 class BackgroundTaskManager:
+    """管理 `BackgroundTask` 相关逻辑。"""
     def __init__(self, workspace_root: Path, settings: TaskSettings) -> None:
+        """初始化实例状态。"""
         self.workspace_root = workspace_root
         self.settings = settings
         self.tasks_dir = (workspace_root / settings.tasks_dir).resolve()
@@ -42,6 +44,7 @@ class BackgroundTaskManager:
         session_id: str | None = None,
         metadata: dict[str, object] | None = None,
     ) -> BackgroundTask:
+        """启动 `command`。"""
         merged_metadata = dict(metadata or {})
         if session_id:
             merged_metadata.setdefault("session_id", session_id)
@@ -99,6 +102,7 @@ class BackgroundTaskManager:
         description: str | None = None,
         session_id: str | None = None,
     ) -> BackgroundTask:
+        """启动 `local_agent`。"""
         command = f"agent-run: {prompt}"
         launch_argv = [*self._resolve_agent_launcher(), "--print"]
         if model:
@@ -128,6 +132,7 @@ class BackgroundTaskManager:
         cwd: Path,
         metadata: dict[str, object] | None = None,
     ) -> TaskRecord:
+        """创建 `task`。"""
         task_id = uuid4().hex[:12]
         task = TaskRecord(
             task_id=task_id,
@@ -152,6 +157,7 @@ class BackgroundTaskManager:
         metadata: dict[str, object] | None = None,
         finished: bool = False,
     ) -> TaskRecord | None:
+        """更新 `task`。"""
         task = self.registry.load(task_id, BackgroundTask)
         if task is None:
             task = self.registry.load(task_id, TaskRecord)
@@ -169,12 +175,14 @@ class BackgroundTaskManager:
         return task
 
     def get(self, task_id: str) -> BackgroundTask | None:
+        """返回 当前流程。"""
         task = self.registry.load(task_id, BackgroundTask)
         if task is None:
             return None
         return self.refresh(task)
 
     def list_tasks(self) -> list[BackgroundTask]:
+        """列出 `tasks`。"""
         tasks: list[BackgroundTask] = []
         for task_id in self.registry.list_ids():
             task = self.registry.load(task_id, BackgroundTask)
@@ -184,6 +192,7 @@ class BackgroundTaskManager:
         return tasks
 
     def list_task_records(self) -> list[TaskRecord]:
+        """列出 `task_records`。"""
         tasks: list[TaskRecord] = []
         for task_id in self.registry.list_ids():
             task = self.registry.load(task_id, BackgroundTask)
@@ -197,6 +206,7 @@ class BackgroundTaskManager:
         return tasks
 
     def refresh(self, task: BackgroundTask) -> BackgroundTask:
+        """刷新 当前流程。"""
         if task.status != "running" or task.pid is None:
             return task
         if self._pid_exists(task.pid):
@@ -207,12 +217,14 @@ class BackgroundTaskManager:
         return task
 
     def read_output(self, task_id: str, *, tail_lines: int = 120) -> str | None:
+        """读取 `output`。"""
         task = self.registry.load(task_id, BackgroundTask)
         if task is None:
             return None
         return self.registry.read_output(task.output_path, tail_lines=tail_lines)
 
     def stop_task(self, task_id: str) -> TaskRecord | None:
+        """停止 `task`。"""
         task = self.registry.load(task_id, BackgroundTask)
         if task is None:
             task = self.registry.load(task_id, TaskRecord)
@@ -237,6 +249,7 @@ class BackgroundTaskManager:
         timeout_seconds: float = 30.0,
         poll_interval: float = 0.2,
     ) -> TaskRecord | None:
+        """等待 `for_task`。"""
         deadline = time.time() + max(0.0, timeout_seconds)
         while time.time() <= deadline:
             task = self.registry.load(task_id, BackgroundTask)
@@ -258,6 +271,7 @@ class BackgroundTaskManager:
         return task
 
     def _pid_exists(self, pid: int) -> bool:
+        """处理 `pid_exists`。"""
         try:
             os.kill(pid, 0)
         except ProcessLookupError:
@@ -274,6 +288,7 @@ class BackgroundTaskManager:
         launch_env: dict[str, str] | None,
         cleanup_path: str | None,
     ) -> str:
+        """处理 `background_wrapper`。"""
         output_path = shlex.quote(task.output_path)
         status_path = shlex.quote(task.status_path)
         python_bin = shlex.quote(sys.executable)
@@ -315,6 +330,7 @@ PY
 """.strip()
 
     def _resolve_agent_launcher(self) -> list[str]:
+        """解析 `agent_launcher`。"""
         configured = os.environ.get("CLAUDE_CODE_THY_AGENT_LAUNCHER", "").strip()
         if configured:
             return shlex.split(configured)

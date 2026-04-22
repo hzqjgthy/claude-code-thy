@@ -14,6 +14,7 @@ from claude_code_thy.mcp.serializers import (
 
 
 def test_dynamic_mcp_name_helpers_round_trip():
+    """测试 `dynamic_mcp_name_helpers_round_trip` 场景。"""
     tool_name = build_mcp_tool_name("xiaohongshu-mcp", "check login/status")
     prompt_name = build_prompt_command_name("xiaohongshu-mcp", "daily summary")
 
@@ -26,15 +27,20 @@ def test_dynamic_mcp_name_helpers_round_trip():
 
 
 def test_serialize_mcp_tool_result_is_json_safe():
+    """测试 `serialize_mcp_tool_result_is_json_safe` 场景。"""
     class DummyTextContent:
+        """表示 `DummyTextContent`。"""
         def __init__(self, text: str) -> None:
+            """初始化实例状态。"""
             self.type = "text"
             self.text = text
             self.annotations = None
             self.meta = None
 
     class DummyResult:
+        """保存 `DummyResult`。"""
         def __init__(self) -> None:
+            """初始化实例状态。"""
             self.content = [DummyTextContent('{"status":"ok"}')]
 
     output, structured = serialize_mcp_tool_result(DummyResult())
@@ -44,27 +50,38 @@ def test_serialize_mcp_tool_result_is_json_safe():
 
 
 def test_prompt_and_resource_serializers_share_json_safe_text_extraction():
+    """测试 `prompt_and_resource_serializers_share_json_safe_text_extraction` 场景。"""
     class DummyTextContent:
+        """表示 `DummyTextContent`。"""
         def __init__(self, text: str) -> None:
+            """初始化实例状态。"""
             self.type = "text"
             self.text = text
 
     class DummyPromptMessage:
+        """保存 `DummyPromptMessage`。"""
         def __init__(self, text: str) -> None:
+            """初始化实例状态。"""
             self.content = [DummyTextContent(text)]
 
     class DummyPromptResult:
+        """保存 `DummyPromptResult`。"""
         def __init__(self) -> None:
+            """初始化实例状态。"""
             self.messages = [DummyPromptMessage("hello from prompt")]
 
     class DummyResourceContent:
+        """表示 `DummyResourceContent`。"""
         def __init__(self) -> None:
+            """初始化实例状态。"""
             self.uri = "memo://1"
             self.mimeType = "text/plain"
             self.text = "hello from resource"
 
     class DummyResourceResult:
+        """保存 `DummyResourceResult`。"""
         def __init__(self) -> None:
+            """初始化实例状态。"""
             self.contents = [DummyResourceContent()]
 
     output, structured = serialize_resource_read_result(DummyResourceResult())

@@ -16,6 +16,7 @@ SANDBOX_EXECUTABLE = "/usr/bin/sandbox-exec"
 
 @dataclass(slots=True)
 class SandboxExecutionSpec:
+    """描述一条命令最终应如何在沙箱中执行。"""
     argv: list[str]
     env: dict[str, str] | None
     mode: str
@@ -27,11 +28,14 @@ class SandboxExecutionSpec:
 
     @property
     def cleanup_path(self) -> str | None:
+        """返回执行后需要清理的临时 profile 路径。"""
         return self.profile_path
 
 
 class SandboxManager:
+    """负责探测 `sandbox-exec` 能力并为命令生成执行方案。"""
     def __init__(self, workspace_root: Path, settings: SandboxSettings) -> None:
+        """保存工作区、沙箱设置和探测缓存。"""
         self.workspace_root = workspace_root.resolve()
         self.settings = settings
         self._probe_result: tuple[bool, str] | None = None
@@ -44,6 +48,7 @@ class SandboxManager:
         decision: SandboxDecision,
         profile_dir: Path | None = None,
     ) -> SandboxExecutionSpec:
+        """根据沙箱决策把一条 shell 命令转换成最终可执行参数。"""
         base_argv = ["/bin/bash", "-lc", command]
         if not decision.sandboxed:
             return SandboxExecutionSpec(
@@ -85,11 +90,13 @@ class SandboxManager:
         )
 
     def cleanup_spec(self, spec: SandboxExecutionSpec) -> None:
+        """删除命令执行过程中生成的临时 sandbox profile。"""
         if not spec.cleanup_path:
             return
         Path(spec.cleanup_path).unlink(missing_ok=True)
 
     def detect_violation(self, output: str) -> str | None:
+        """从命令输出中识别常见的 sandbox 违规提示。"""
         lowered = output.lower()
         if "sandbox_apply" in lowered:
             return "sandbox-exec 应用失败。"
@@ -100,12 +107,14 @@ class SandboxManager:
         return None
 
     def _supports_sandbox_exec(self) -> bool:
+        """判断当前机器是否可用 `sandbox-exec`。"""
         if os.name != "posix" or shutil.which("sandbox-exec") is None:
             return False
         supported, _ = self._sandbox_probe_result()
         return supported
 
     def _sandbox_probe_result(self) -> tuple[bool, str]:
+        """执行一次轻量探测，并缓存 `sandbox-exec` 的可用性。"""
         if self._probe_result is not None:
             return self._probe_result
         try:
@@ -144,6 +153,7 @@ class SandboxManager:
         mode: str,
         profile_dir: Path | None,
     ) -> Path:
+        """把当前执行模式对应的 sandbox profile 写入临时文件。"""
         target_dir = profile_dir.resolve() if profile_dir is not None else None
         if target_dir is not None:
             target_dir.mkdir(parents=True, exist_ok=True)
@@ -159,6 +169,7 @@ class SandboxManager:
             return Path(handle.name)
 
     def _profile_text(self, *, cwd: Path, mode: str) -> str:
+        """生成一份最小化 sandbox-exec profile 文本。"""
         writable_roots = self._writable_roots(cwd=cwd, mode=mode)
         lines = [
             "(version 1)",
@@ -173,6 +184,7 @@ class SandboxManager:
         return "\n".join(lines) + "\n"
 
     def _writable_roots(self, *, cwd: Path, mode: str) -> list[Path]:
+        """按模式汇总允许写入的根目录，并做去重。"""
         roots: list[Path] = []
         if mode == "workspace-write":
             roots.extend([self.workspace_root, cwd])
@@ -200,4 +212,5 @@ class SandboxManager:
         return unique
 
     def _escape(self, path: Path) -> str:
+        """转义路径中的反斜杠和引号，供 profile 文本使用。"""
         return str(path).replace("\\", "\\\\").replace('"', '\\"')

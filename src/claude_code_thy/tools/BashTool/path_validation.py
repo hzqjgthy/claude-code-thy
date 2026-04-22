@@ -40,6 +40,7 @@ DOUBLE_PATH_COMMANDS = {"cp", "mv"}
 
 
 def validate_command_paths(command: str, context: ToolContext) -> list[str]:
+    """校验 `command_paths`。"""
     checked: list[str] = []
     for target in extract_command_paths(command):
         if _should_skip_path(target):
@@ -59,6 +60,7 @@ def validate_command_paths(command: str, context: ToolContext) -> list[str]:
 
 
 def extract_command_paths(command: str) -> list[str]:
+    """提取 `command_paths`。"""
     sed_info = parse_sed_edit_command(command)
     if sed_info is not None:
         return [sed_info.file_path]
@@ -90,6 +92,7 @@ def extract_command_paths(command: str) -> list[str]:
 
 
 def _find_paths(args: list[str]) -> list[str]:
+    """查找 `paths`。"""
     paths: list[str] = []
     after_double_dash = False
     for arg in args:
@@ -106,6 +109,7 @@ def _find_paths(args: list[str]) -> list[str]:
 
 
 def _pattern_command_paths(args: list[str]) -> list[str]:
+    """处理 `pattern_command_paths`。"""
     paths: list[str] = []
     pattern_found = False
     after_double_dash = False
@@ -151,6 +155,7 @@ def _pattern_command_paths(args: list[str]) -> list[str]:
 
 
 def _sed_paths(args: list[str]) -> list[str]:
+    """处理 `sed_paths`。"""
     expressions_seen = False
     paths: list[str] = []
     index = 0
@@ -182,6 +187,7 @@ def _sed_paths(args: list[str]) -> list[str]:
 
 
 def _git_paths(args: list[str]) -> list[str]:
+    """处理 `git_paths`。"""
     if not args:
         return []
     if "--" in args:
@@ -197,6 +203,7 @@ def _git_paths(args: list[str]) -> list[str]:
 
 
 def _filter_out_flags(args: list[str]) -> list[str]:
+    """处理 `filter_out_flags`。"""
     paths: list[str] = []
     after_double_dash = False
     for arg in args:
@@ -213,6 +220,7 @@ def _filter_out_flags(args: list[str]) -> list[str]:
 
 
 def _should_skip_path(path: str) -> bool:
+    """返回是否满足 `should_skip_path` 条件。"""
     return (
         not path
         or path in {"-", "/dev/stdin", "/dev/stdout", "/dev/stderr"}

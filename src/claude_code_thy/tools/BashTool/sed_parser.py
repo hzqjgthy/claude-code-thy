@@ -8,6 +8,7 @@ from .utils import shell_split, strip_leading_env_assignments
 
 @dataclass(slots=True)
 class SedEditInfo:
+    """表示 `SedEditInfo`。"""
     file_path: str
     pattern: str
     replacement: str
@@ -16,6 +17,7 @@ class SedEditInfo:
 
 
 def parse_sed_edit_command(command: str) -> SedEditInfo | None:
+    """解析 `sed_edit_command`。"""
     tokens = shell_split(command)
     if not tokens:
         return None
@@ -119,6 +121,7 @@ def parse_sed_edit_command(command: str) -> SedEditInfo | None:
 
 
 def apply_sed_substitution(content: str, info: SedEditInfo) -> str:
+    """处理 `apply_sed_substitution`。"""
     pattern = info.pattern
     if not info.extended_regex:
         pattern = (
@@ -151,6 +154,7 @@ def apply_sed_substitution(content: str, info: SedEditInfo) -> str:
 
 
 def _convert_sed_replacement(replacement: str) -> str:
+    """处理 `convert_sed_replacement`。"""
     converted = []
     index = 0
     while index < len(replacement):

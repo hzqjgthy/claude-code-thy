@@ -50,6 +50,7 @@ GIT_READ_ONLY_SUBCOMMANDS = {
 
 
 def is_read_only_command(command: str) -> bool:
+    """返回是否满足 `is_read_only_command` 条件。"""
     if extract_redirection_targets(command):
         return False
 

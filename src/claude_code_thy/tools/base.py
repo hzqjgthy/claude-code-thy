@@ -13,10 +13,12 @@ if TYPE_CHECKING:
 
 
 class ToolError(RuntimeError):
+    """统一表示工具层的业务错误。"""
     pass
 
 
 class PermissionRequiredError(ToolError):
+    """表示工具命中了“需要用户确认”而非立即失败。"""
     def __init__(
         self,
         request: "PermissionRequest",
@@ -25,6 +27,7 @@ class PermissionRequiredError(ToolError):
         original_input: dict[str, object] | None = None,
         user_modified: bool = False,
     ) -> None:
+        """保存权限请求及当时的输入快照，便于后续恢复执行。"""
         self.request = request
         self.input_data = input_data or {}
         self.original_input = original_input or dict(self.input_data)
@@ -34,6 +37,7 @@ class PermissionRequiredError(ToolError):
 
 @dataclass(slots=True)
 class FileReadState:
+    """记录某个文件最近一次被读取的范围和内容。"""
     content: str
     timestamp: int
     offset: int | None = None
@@ -42,15 +46,18 @@ class FileReadState:
 
     @property
     def is_full_file(self) -> bool:
+        """判断当前缓存是否覆盖了整份文件。"""
         return self.limit is None and self.offset in (None, 1)
 
     @property
     def is_partial_view(self) -> bool:
+        """判断当前缓存是否只是文件的一个局部片段。"""
         return not self.is_full_file
 
 
 @dataclass(slots=True)
 class RuntimeSessionState:
+    """保存工具运行中需要跨多次调用复用的会话级状态。"""
     read_file_state: dict[str, FileReadState] = field(default_factory=dict)
     services: ToolServices | None = None
     skill_dirs: set[str] = field(default_factory=set)
@@ -60,6 +67,7 @@ class RuntimeSessionState:
 
 @dataclass(slots=True)
 class PermissionContext:
+    """封装路径、命令和沙箱相关的权限判断能力。"""
     workspace_root: Path
     allow_roots: tuple[Path, ...]
     read_ignore_patterns: tuple[str, ...] = ()
@@ -68,6 +76,7 @@ class PermissionContext:
     approved_permissions: set[str] = field(default_factory=set)
 
     def allows_path(self, path: Path) -> bool:
+        """快速判断一个路径是否天然落在允许访问的根目录里。"""
         if self.permission_engine is not None:
             decision = self.permission_engine.check_path("*", path)
             return decision.allowed and not decision.requires_confirmation
@@ -80,11 +89,13 @@ class PermissionContext:
         return False
 
     def check_path(self, tool_name: str, path: Path) -> PermissionDecision | None:
+        """委托权限引擎判断某个路径对指定工具的访问结果。"""
         if self.permission_engine is None:
             return None
         return self.permission_engine.check_path(tool_name, path)
 
     def require_path(self, tool_name: str, path: Path) -> None:
+        """要求某个路径访问必须通过权限检查，否则抛出错误或确认请求。"""
         decision = self.check_path(tool_name, path)
         if decision is None:
             if not self.allows_path(path):
@@ -109,11 +120,13 @@ class PermissionContext:
         raise ToolError(decision.reason or f"{tool_name} 被权限规则拒绝")
 
     def check_command(self, tool_name: str, command: str) -> PermissionDecision | None:
+        """委托权限引擎判断某条命令是否允许执行。"""
         if self.permission_engine is None:
             return None
         return self.permission_engine.check_command(tool_name, command)
 
     def require_command(self, tool_name: str, command: str) -> None:
+        """要求命令执行通过权限校验，否则转成拒绝或确认请求。"""
         decision = self.check_command(tool_name, command)
         if decision is None:
             return
@@ -141,6 +154,7 @@ class PermissionContext:
         *,
         disable_requested: bool = False,
     ) -> SandboxDecision | None:
+        """根据沙箱策略决定命令是否需要降权或允许关闭沙箱。"""
         if self.sandbox_policy is None:
             return None
         return self.sandbox_policy.decide_for_command(
@@ -149,6 +163,7 @@ class PermissionContext:
         )
 
     def _approval_key(self, tool_name: str, target: str, value: str) -> str:
+        """生成可跨一次会话复用的权限确认键。"""
         return f"{tool_name}:{target}:{value}"
 
     def _permission_request(
@@ -161,6 +176,7 @@ class PermissionContext:
         approval_key: str,
         decision: "PermissionDecision",
     ) -> "PermissionRequest":
+        """把权限判定结果包装成前端可展示、可恢复的确认请求。"""
         from claude_code_thy.permissions import PermissionRequest
 
         return PermissionRequest.create(
@@ -184,6 +200,7 @@ class PermissionContext:
         *,
         reason: str = "",
     ) -> "PermissionRequest":
+        """为路径访问手动构造一条权限确认请求。"""
         decision = self.check_path(tool_name, path)
         normalized = str(path.resolve())
         return self._permission_request(
@@ -202,6 +219,7 @@ class PermissionContext:
         *,
         reason: str = "",
     ) -> "PermissionRequest":
+        """为命令执行手动构造一条权限确认请求。"""
         decision = self.check_command(tool_name, command)
         return self._permission_request(
             tool_name=tool_name,
@@ -213,10 +231,12 @@ class PermissionContext:
         )
 
     def match_path_pattern(self, path: Path, pattern: str) -> bool:
+        """按绝对路径检查某个 glob 规则是否命中。"""
         normalized = str(path.resolve())
         return fnmatch(normalized, pattern)
 
     def _default_decision(self, reason: str) -> "PermissionDecision":
+        """在没有具体规则时构造一个“需要确认”的默认判定。"""
         from claude_code_thy.permissions import PermissionDecision
 
         return PermissionDecision(
@@ -228,6 +248,7 @@ class PermissionContext:
 
 @dataclass(slots=True)
 class ToolEvent:
+    """描述工具执行过程中的阶段性事件，供 UI 实时展示。"""
     tool_name: str
     phase: str
     summary: str
@@ -240,6 +261,7 @@ ToolEventHandler = Callable[[ToolEvent], None]
 
 @dataclass(slots=True)
 class ToolContext:
+    """向工具暴露当前会话、权限、共享服务和事件发射能力。"""
     session_id: str
     cwd: Path
     state: RuntimeSessionState
@@ -253,14 +275,17 @@ class ToolContext:
 
     @property
     def read_file_state(self) -> dict[str, FileReadState]:
+        """返回当前会话累积的文件读取缓存。"""
         return self.state.read_file_state
 
     @property
     def skill_dirs(self) -> set[str]:
+        """返回当前会话已经发现过的 skill 目录集合。"""
         return self.state.skill_dirs
 
     @property
     def touched_paths(self) -> set[str]:
+        """返回当前会话中被工具接触过的文件路径集合。"""
         return self.state.touched_paths
 
     def emit(
@@ -272,6 +297,7 @@ class ToolContext:
         detail: str = "",
         metadata: dict[str, object] | None = None,
     ) -> None:
+        """向外部事件处理器发送一条工具执行事件。"""
         if self.emit_event is None:
             return
         self.emit_event(
@@ -285,6 +311,7 @@ class ToolContext:
         )
 
     def discover_skills_for_paths(self, paths: list[Path]) -> tuple[str, ...]:
+        """根据本次涉及的路径补充可用 skill，并把结果写入会话状态。"""
         if self.services is None:
             return ()
         result = self.services.skill_manager.discover_for_paths(paths)
@@ -295,6 +322,7 @@ class ToolContext:
 
 @dataclass(slots=True)
 class ToolSpec:
+    """描述一个工具暴露给模型时的名称、说明和输入 schema。"""
     name: str
     description: str
     input_schema: dict[str, object]
@@ -305,6 +333,7 @@ class ToolSpec:
 
 @dataclass(slots=True)
 class ToolResult:
+    """统一封装工具给 UI、模型和搜索索引使用的输出。"""
     tool_name: str
     ok: bool
     summary: str
@@ -317,6 +346,7 @@ class ToolResult:
     tool_result_content: object | None = None
 
     def render(self) -> str:
+        """渲染成人类可直接阅读的文本结果。"""
         lines = [
             f"工具 `{self.tool_name}` {'执行成功' if self.ok else '执行失败'}",
             self.summary,
@@ -334,11 +364,13 @@ class ToolResult:
         return "\n".join(lines)
 
     def content_for_model(self) -> object:
+        """返回要继续喂给模型的工具结果内容。"""
         if self.tool_result_content is not None:
             return self.tool_result_content
         return self.render()
 
     def message_metadata(self, *, tool_use_id: str | None = None) -> dict[str, object]:
+        """整理出前端展示和会话持久化需要的元数据。"""
         data = {
             "tool_name": self.tool_name,
             "display_name": self.display_name or self.tool_name,
@@ -358,6 +390,7 @@ class ToolResult:
 
 @dataclass(slots=True)
 class ValidationResult:
+    """表示工具输入校验阶段的通过/拒绝结果。"""
     ok: bool
     message: str = ""
     updated_input: dict[str, object] | None = None
@@ -370,6 +403,7 @@ class ValidationResult:
         updated_input: dict[str, object] | None = None,
         metadata: dict[str, object] | None = None,
     ) -> "ValidationResult":
+        """构造一个“校验通过”的结果，可附带修正后的输入。"""
         return cls(ok=True, updated_input=updated_input, metadata=metadata or {})
 
     @classmethod
@@ -380,6 +414,7 @@ class ValidationResult:
         updated_input: dict[str, object] | None = None,
         metadata: dict[str, object] | None = None,
     ) -> "ValidationResult":
+        """构造一个“校验失败”的结果，并说明失败原因。"""
         return cls(
             ok=False,
             message=message,
@@ -393,6 +428,7 @@ PermissionBehavior = Literal["allow", "ask", "deny"]
 
 @dataclass(slots=True)
 class PermissionResult:
+    """表示权限阶段的允许、询问或拒绝结果。"""
     behavior: PermissionBehavior
     reason: str = ""
     request: "PermissionRequest | None" = None
@@ -406,6 +442,7 @@ class PermissionResult:
         updated_input: dict[str, object] | None = None,
         metadata: dict[str, object] | None = None,
     ) -> "PermissionResult":
+        """构造一个可直接执行的权限结果。"""
         return cls(
             behavior="allow",
             updated_input=updated_input,
@@ -420,6 +457,7 @@ class PermissionResult:
         updated_input: dict[str, object] | None = None,
         metadata: dict[str, object] | None = None,
     ) -> "PermissionResult":
+        """构造一个需要用户确认后才能继续的权限结果。"""
         return cls(
             behavior="ask",
             reason=request.reason,
@@ -436,6 +474,7 @@ class PermissionResult:
         updated_input: dict[str, object] | None = None,
         metadata: dict[str, object] | None = None,
     ) -> "PermissionResult":
+        """构造一个被权限层直接拒绝的结果。"""
         return cls(
             behavior="deny",
             reason=reason,
@@ -445,24 +484,29 @@ class PermissionResult:
 
 
 class Tool(ABC):
+    """所有内置工具和动态 MCP 工具都遵循的统一抽象基类。"""
     name: str
     description: str
     usage: str = ""
     input_schema: dict[str, object]
 
     def parse_raw_input(self, raw_args: str, context: ToolContext) -> dict[str, object]:
+        """把 slash 命令的原始字符串参数解析成结构化输入。"""
         _ = (raw_args, context)
         raise ToolError(f"工具 `{self.name}` 不支持以字符串参数执行")
 
     @abstractmethod
     def execute(self, raw_args: str, context: ToolContext) -> ToolResult:
+        """兼容旧入口的字符串参数执行接口。"""
         raise NotImplementedError
 
     @abstractmethod
     def execute_input(self, input_data: dict[str, object], context: ToolContext) -> ToolResult:
+        """执行结构化输入，这是当前工具系统的主入口。"""
         raise NotImplementedError
 
     def validate_input_data(self, input_data: dict[str, object], context: ToolContext) -> dict[str, object]:
+        """按 JSON schema 的基础约束检查输入字段是否齐全且类型正确。"""
         _ = context
         required = self.input_schema.get("required", [])
         if isinstance(required, list):
@@ -498,6 +542,7 @@ class Tool(ABC):
         input_data: dict[str, object],
         context: ToolContext,
     ) -> ValidationResult:
+        """执行工具自定义的业务校验，默认直接放行。"""
         _ = context
         return ValidationResult.allow(updated_input=input_data)
 
@@ -506,6 +551,7 @@ class Tool(ABC):
         input_data: dict[str, object],
         context: ToolContext,
     ) -> PermissionResult:
+        """执行工具自己的权限检查逻辑，默认不额外拦截。"""
         _ = context
         return PermissionResult.allow(updated_input=input_data)
 
@@ -514,6 +560,7 @@ class Tool(ABC):
         input_data: dict[str, object],
         context: ToolContext,
     ) -> Callable[[str], bool] | None:
+        """预生成权限匹配器，供前端在确认阶段做更细粒度提示。"""
         _ = (input_data, context)
         return None
 
@@ -522,6 +569,7 @@ class Tool(ABC):
         original_input: dict[str, object],
         updated_input: dict[str, object],
     ) -> bool:
+        """判断校验或权限阶段是否对输入做了语义上的修改。"""
         return original_input == updated_input
 
     def render_tool_use_rejected_message(
@@ -533,6 +581,7 @@ class Tool(ABC):
         original_input: dict[str, object] | None = None,
         user_modified: bool = False,
     ) -> ToolResult:
+        """在工具被拒绝执行时生成统一的拒绝消息。"""
         _ = (context, original_input)
         summary = reason or f"{self.name} 被拒绝执行"
         return ToolResult(
@@ -561,10 +610,12 @@ class Tool(ABC):
         *,
         tool_use_id: str | None = None,
     ) -> object:
+        """把工具结果转换成要回传给模型的内容格式。"""
         _ = tool_use_id
         return result.content_for_model()
 
     def extract_search_text(self, result: ToolResult) -> str:
+        """提取适合写入搜索索引的文本内容。"""
         if result.output.strip():
             return result.output
         if result.preview.strip():
@@ -577,6 +628,7 @@ class Tool(ABC):
         return ""
 
     def to_spec(self) -> ToolSpec:
+        """导出一个静态 ToolSpec，供模型注册工具时使用。"""
         return ToolSpec(
             name=self.name,
             description=self.description,
@@ -587,14 +639,18 @@ class Tool(ABC):
         )
 
     def to_spec_for_context(self, context: ToolContext | None = None) -> ToolSpec:
+        """按上下文导出 ToolSpec，动态工具可在这里做定制。"""
         _ = context
         return self.to_spec()
 
     def is_read_only(self) -> bool:
+        """声明该工具默认是否只读。"""
         return False
 
     def is_concurrency_safe(self) -> bool:
+        """声明该工具是否适合并发执行。"""
         return False
 
     def search_behavior(self) -> dict[str, bool]:
+        """告诉上层这个工具是否属于搜索类或读取类工具。"""
         return {"is_search": False, "is_read": False}

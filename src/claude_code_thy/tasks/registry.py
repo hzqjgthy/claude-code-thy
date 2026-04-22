@@ -10,18 +10,22 @@ TaskRecordT = TypeVar("TaskRecordT", bound=TaskRecord)
 
 
 class TaskRegistry:
+    """维护 `TaskRegistry`。"""
     def __init__(self, root_dir: Path, *, max_tasks: int) -> None:
+        """初始化实例状态。"""
         self.root_dir = root_dir.resolve()
         self.root_dir.mkdir(parents=True, exist_ok=True)
         self.max_tasks = max_tasks
 
     def save(self, task: TaskRecord) -> None:
+        """保存 当前流程。"""
         Path(task.status_path).write_text(
             json.dumps(task.to_dict(), ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
 
     def load(self, task_id: str, task_cls: type[TaskRecordT]) -> TaskRecordT | None:
+        """加载 当前流程。"""
         path = self.path_for(task_id)
         if not path.exists():
             return None
@@ -32,9 +36,11 @@ class TaskRegistry:
         return task_cls.from_dict(raw)
 
     def list_ids(self) -> list[str]:
+        """列出 `ids`。"""
         return sorted(path.stem for path in self.root_dir.glob("*.json"))
 
     def trim(self) -> None:
+        """处理 `trim`。"""
         entries = sorted(
             (path for path in self.root_dir.glob("*.json") if path.is_file()),
             key=lambda path: path.stat().st_mtime,
@@ -44,6 +50,7 @@ class TaskRegistry:
             stale.unlink(missing_ok=True)
 
     def read_output(self, output_path: str, *, tail_lines: int = 120) -> str:
+        """读取 `output`。"""
         path = Path(output_path)
         if not path.exists():
             return ""
@@ -54,4 +61,5 @@ class TaskRegistry:
         return "\n".join(lines[-tail_lines:])
 
     def path_for(self, task_id: str) -> Path:
+        """处理 `path_for`。"""
         return self.root_dir / f"{task_id}.json"

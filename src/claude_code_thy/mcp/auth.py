@@ -24,6 +24,7 @@ TOKEN_DIRNAME = "mcp-auth"
 
 @dataclass(slots=True)
 class OAuthServerSettings:
+    """保存启动 MCP OAuth 流程所需的服务端配置。"""
     client_id: str
     client_secret: str | None
     callback_port: int
@@ -32,10 +33,12 @@ class OAuthServerSettings:
 
 
 def supports_oauth(config: McpServerConfig) -> bool:
+    """判断一个 MCP server 是否声明了可用的 OAuth 配置。"""
     return oauth_settings_for_config(config) is not None
 
 
 def oauth_settings_for_config(config: McpServerConfig) -> OAuthServerSettings | None:
+    """从 MCP server 配置中提取并标准化 OAuth 参数。"""
     raw = config.oauth
     if not raw and isinstance(config.raw_config.get("oauth"), dict):
         raw = {
@@ -71,6 +74,7 @@ def oauth_settings_for_config(config: McpServerConfig) -> OAuthServerSettings | 
 
 
 def get_oauth_authorization_header(config: McpServerConfig) -> dict[str, str]:
+    """读取本地缓存 token，并拼出 Authorization 请求头。"""
     if not supports_oauth(config):
         return {}
     token = load_access_token(config.name)
@@ -80,6 +84,7 @@ def get_oauth_authorization_header(config: McpServerConfig) -> dict[str, str]:
 
 
 def load_access_token(server_name: str) -> str | None:
+    """读取指定 server 的 access token；过期则视为不存在。"""
     data = _load_token_payload(server_name)
     if not data:
         return None
@@ -91,6 +96,7 @@ def load_access_token(server_name: str) -> str | None:
 
 
 def clear_oauth_tokens(server_name: str) -> None:
+    """删除指定 server 的本地 OAuth token 文件。"""
     path = _token_path(server_name)
     try:
         path.unlink()
@@ -104,6 +110,7 @@ def start_oauth_flow(
     *,
     on_complete,
 ) -> str:
+    """启动一轮 PKCE OAuth 登录流程，并返回需要打开的授权地址。"""
     settings = oauth_settings_for_config(config)
     if settings is None:
         raise McpRuntimeError(f"MCP server `{server_name}` 没有可用的 OAuth 配置")
@@ -129,6 +136,7 @@ def start_oauth_flow(
     })}"
 
     def complete_flow() -> None:
+        """等待回调、换取 token，并在结束后通知调用方结果。"""
         try:
             result = callback_server.wait_for_result()
             if result.error:
@@ -161,11 +169,13 @@ def start_oauth_flow(
 
 
 def _pkce_challenge(verifier: str) -> str:
+    """根据 verifier 生成 PKCE `S256` challenge。"""
     digest = hashlib.sha256(verifier.encode("utf-8")).digest()
     return base64.urlsafe_b64encode(digest).decode("utf-8").rstrip("=")
 
 
 def _fetch_oauth_metadata(metadata_url: str) -> dict[str, object]:
+    """下载 OAuth metadata 文档。"""
     request = Request(metadata_url, headers={"Accept": "application/json"})
     with urlopen(request, timeout=20) as response:
         return json.loads(response.read().decode("utf-8"))
@@ -180,6 +190,7 @@ def _exchange_code_for_token(
     client_secret: str | None,
     code_verifier: str,
 ) -> dict[str, object]:
+    """用授权码换取 token，并补充本地使用的过期时间字段。"""
     payload = {
         "grant_type": "authorization_code",
         "code": code,
@@ -207,12 +218,14 @@ def _exchange_code_for_token(
 
 
 def _save_token_payload(server_name: str, payload: dict[str, object]) -> None:
+    """把 token 响应持久化到本地磁盘。"""
     path = _token_path(server_name)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def _load_token_payload(server_name: str) -> dict[str, object] | None:
+    """从本地磁盘读取 token 响应。"""
     path = _token_path(server_name)
     if not path.exists():
         return None
@@ -224,6 +237,7 @@ def _load_token_payload(server_name: str) -> dict[str, object] | None:
 
 
 def _token_path(server_name: str) -> Path:
+    """计算某个 MCP server 的 token 文件路径。"""
     configured_home = os.environ.get("CLAUDE_CODE_THY_HOME")
     if configured_home:
         base_dir = Path(configured_home).expanduser().resolve()

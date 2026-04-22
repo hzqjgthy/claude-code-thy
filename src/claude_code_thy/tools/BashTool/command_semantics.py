@@ -9,6 +9,7 @@ def interpret_command_result(
     stdout: str,
     stderr: str,
 ) -> dict[str, object]:
+    """处理 `interpret_command_result`。"""
     _ = (stdout, stderr)
     segments = iter_shell_commands(command)
     inspected = segments[-1] if segments else command

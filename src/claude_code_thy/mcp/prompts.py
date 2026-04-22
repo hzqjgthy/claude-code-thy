@@ -9,6 +9,7 @@ def parse_prompt_arguments(
     prompt: McpPromptDefinition,
     raw_args: str,
 ) -> dict[str, str]:
+    """解析 `prompt_arguments`。"""
     names = list(prompt.arguments)
     text = raw_args.strip()
     if not names:

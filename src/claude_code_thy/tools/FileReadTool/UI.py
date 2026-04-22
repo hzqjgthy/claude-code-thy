@@ -4,6 +4,7 @@ from pathlib import Path
 
 
 def _agent_output_task_id(file_path: str) -> str | None:
+    """处理 `agent_output_task_id`。"""
     path = Path(file_path)
     if path.suffix == ".output" and "tasks" in path.parts:
         return path.stem
@@ -11,14 +12,17 @@ def _agent_output_task_id(file_path: str) -> str | None:
 
 
 def _is_plan_file(file_path: str) -> bool:
+    """返回是否满足 `is_plan_file` 条件。"""
     path = Path(file_path)
     return "plans" in path.parts
 
 def tool_label() -> str:
+    """处理 `tool_label`。"""
     return "Read"
 
 
 def summarize_input(raw_input: object) -> str:
+    """汇总 `input`。"""
     if not isinstance(raw_input, dict):
         return ""
     file_path = raw_input.get("file_path", "")
@@ -41,6 +45,7 @@ def summarize_input(raw_input: object) -> str:
 
 
 def extra_result_lines(metadata: dict[str, object]) -> list[str]:
+    """处理 `extra_result_lines`。"""
     lines: list[str] = []
     structured = metadata.get("structured_data")
     if isinstance(structured, dict):

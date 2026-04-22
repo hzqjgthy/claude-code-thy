@@ -5,6 +5,7 @@ from pathlib import Path
 
 
 def single_file_git_diff(path: Path, *, status: str = "modified") -> dict[str, object] | None:
+    """处理 `single_file_git_diff`。"""
     repo_root = _git_root(path.parent)
     if repo_root is None:
         return None
@@ -36,6 +37,7 @@ def single_file_git_diff(path: Path, *, status: str = "modified") -> dict[str, o
 
 
 def _git_root(cwd: Path) -> Path | None:
+    """处理 `git_root`。"""
     completed = subprocess.run(
         ["git", "-C", str(cwd), "rev-parse", "--show-toplevel"],
         capture_output=True,

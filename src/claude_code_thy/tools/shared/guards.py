@@ -15,6 +15,7 @@ SECRET_PATTERNS = [
 
 
 def check_secret_like_content(file_path: Path, content: str) -> None:
+    """检查 `secret_like_content`。"""
     normalized = str(file_path).lower()
     if "team" not in normalized and "memory" not in normalized:
         return
@@ -26,6 +27,7 @@ def check_secret_like_content(file_path: Path, content: str) -> None:
 
 
 def validate_settings_file_content(file_path: Path, content: str) -> None:
+    """校验 `settings_file_content`。"""
     if not _is_settings_file(file_path):
         return
     try:
@@ -38,4 +40,5 @@ def validate_settings_file_content(file_path: Path, content: str) -> None:
 
 
 def _is_settings_file(file_path: Path) -> bool:
+    """返回是否满足 `is_settings_file` 条件。"""
     return file_path.name in {"settings.json", "settings.local.json"} and ".claude-code-thy" in str(file_path)

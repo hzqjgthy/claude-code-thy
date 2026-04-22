@@ -7,6 +7,7 @@ from claude_code_thy.providers.base import Provider, ProviderConfigurationError
 
 
 def build_provider(config: AppConfig) -> Provider:
+    """构建 `provider`。"""
     if config.provider == "anthropic-compatible":
         if not (config.anthropic_api_key or config.anthropic_auth_token):
             raise ProviderConfigurationError(

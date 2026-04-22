@@ -4,10 +4,12 @@ from claude_code_thy.tools import ToolRuntime, build_builtin_tools
 
 
 def build_runtime() -> ToolRuntime:
+    """构建 `runtime`。"""
     return ToolRuntime(build_builtin_tools())
 
 
 def test_agent_tool_inherits_session_model_and_default_description(tmp_path, monkeypatch):
+    """测试 `agent_tool_inherits_session_model_and_default_description` 场景。"""
     runtime = build_runtime()
     session = SessionTranscript(
         session_id="agent-1",
@@ -20,6 +22,7 @@ def test_agent_tool_inherits_session_model_and_default_description(tmp_path, mon
     captured: dict[str, object] = {}
 
     def fake_start_local_agent(*, prompt, cwd, model, env=None, description=None, session_id=None):
+        """处理 `fake_start_local_agent`。"""
         captured.update(
             {
                 "prompt": prompt,
@@ -42,6 +45,7 @@ def test_agent_tool_inherits_session_model_and_default_description(tmp_path, mon
         )
 
     def fake_wait_for_task(task_id, *, timeout_seconds=30.0, poll_interval=0.2):
+        """处理 `fake_wait_for_task`。"""
         _ = (task_id, timeout_seconds, poll_interval)
         return BackgroundTask(
             task_id="task-1",
@@ -57,6 +61,7 @@ def test_agent_tool_inherits_session_model_and_default_description(tmp_path, mon
         )
 
     def fake_read_output(task_id, *, tail_lines=120):
+        """处理 `fake_read_output`。"""
         _ = (task_id, tail_lines)
         return "agent ok"
 

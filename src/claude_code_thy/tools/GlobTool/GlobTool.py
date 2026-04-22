@@ -19,6 +19,7 @@ from .search import glob_with_python, glob_with_rg
 
 
 class GlobTool(Tool):
+    """实现 `Glob` 工具。"""
     name = "glob"
     description = DESCRIPTION
     usage = USAGE
@@ -32,15 +33,19 @@ class GlobTool(Tool):
     }
 
     def is_read_only(self) -> bool:
+        """返回是否满足 `is_read_only` 条件。"""
         return True
 
     def is_concurrency_safe(self) -> bool:
+        """返回是否满足 `is_concurrency_safe` 条件。"""
         return True
 
     def search_behavior(self) -> dict[str, bool]:
+        """搜索 `behavior`。"""
         return {"is_search": True, "is_read": False}
 
     def parse_raw_input(self, raw_args: str, context: ToolContext) -> dict[str, object]:
+        """解析 `raw_input`。"""
         _ = context
         parser = _make_parser("glob", self.description)
         parser.add_argument("pattern", nargs="?")
@@ -59,17 +64,20 @@ class GlobTool(Tool):
         input_data: dict[str, object],
         context: ToolContext,
     ) -> PermissionResult:
+        """检查 `permissions`。"""
         raw_path = str(input_data.get("path", "")).strip()
         if not raw_path:
             return PermissionResult.allow(updated_input=input_data)
         return _path_permission_result(self.name, raw_path, context, input_data)
 
     def prepare_permission_matcher(self, input_data: dict[str, object], context: ToolContext):
+        """处理 `prepare_permission_matcher`。"""
         raw_path = str(input_data.get("path", "")).strip()
         path = _candidate_path(context, raw_path or ".", allow_missing=True)
         return lambda pattern: context.permission_context.match_path_pattern(path, pattern)
 
     def execute(self, raw_args: str, context: ToolContext) -> ToolResult:
+        """执行当前流程。"""
         args = self.parse_raw_input(raw_args, context)
         return self._glob(
             context,
@@ -78,6 +86,7 @@ class GlobTool(Tool):
         )
 
     def execute_input(self, input_data: dict[str, object], context: ToolContext) -> ToolResult:
+        """执行 `input`。"""
         pattern = str(input_data.get("pattern", "")).strip()
         if not pattern:
             raise ToolError("tool input 缺少 pattern")
@@ -85,6 +94,7 @@ class GlobTool(Tool):
         return self._glob(context, pattern=pattern, path=path)
 
     def _glob(self, context: ToolContext, *, pattern: str, path: str | None) -> ToolResult:
+        """处理 `glob`。"""
         search_root = context.cwd if not path else _resolve_path(context, path, tool_name=self.name)
         if not search_root.exists():
             raise _missing_path_error(context, path or str(search_root), kind="Directory")

@@ -6,6 +6,7 @@ from pathlib import Path
 
 @dataclass(slots=True)
 class TextFileSnapshot:
+    """表示 `TextFileSnapshot`。"""
     content: str
     encoding: str
     newline: str
@@ -13,6 +14,7 @@ class TextFileSnapshot:
 
 
 def read_text_snapshot(path: Path) -> TextFileSnapshot:
+    """读取 `text_snapshot`。"""
     raw = path.read_bytes()
     had_bom = raw.startswith(b"\xff\xfe")
     encoding = "utf-16le" if had_bom else "utf-8"
@@ -39,6 +41,7 @@ def write_text_snapshot(
     newline: str = "\n",
     had_bom: bool = False,
 ) -> None:
+    """写入 `text_snapshot`。"""
     normalized = content.replace("\r\n", "\n").replace("\r", "\n")
     if newline == "\r\n":
         normalized = normalized.replace("\n", "\r\n")
@@ -56,6 +59,7 @@ def write_text_snapshot(
 
 
 def detect_newline(text: str) -> str:
+    """处理 `detect_newline`。"""
     if "\r\n" in text:
         return "\r\n"
     if "\r" in text:

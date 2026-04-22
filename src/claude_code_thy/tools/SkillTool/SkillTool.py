@@ -7,6 +7,7 @@ from .prompt import DESCRIPTION, USAGE
 
 
 class SkillTool(Tool):
+    """实现 `Skill` 工具。"""
     name = "skill"
     description = DESCRIPTION
     usage = USAGE
@@ -20,6 +21,7 @@ class SkillTool(Tool):
     }
 
     def parse_raw_input(self, raw_args: str, context: ToolContext) -> dict[str, object]:
+        """解析 `raw_input`。"""
         _ = context
         text = raw_args.strip()
         if not text:
@@ -28,9 +30,11 @@ class SkillTool(Tool):
         return {"skill": skill_name.strip(), "args": args.strip()}
 
     def execute(self, raw_args: str, context: ToolContext) -> ToolResult:
+        """执行当前流程。"""
         return self.execute_input(self.parse_raw_input(raw_args, context), context)
 
     def execute_input(self, input_data: dict[str, object], context: ToolContext) -> ToolResult:
+        """执行 `input`。"""
         if context.services is None:
             raise ToolError("Skill registry is unavailable")
 
@@ -84,6 +88,7 @@ class SkillTool(Tool):
         )
 
     def to_spec_for_context(self, context: ToolContext | None = None) -> ToolSpec:
+        """转换为 `spec_for_context`。"""
         if context is None or context.services is None:
             return super().to_spec()
         session = context.services.command_session_for(context.session_id)
@@ -101,6 +106,7 @@ class SkillTool(Tool):
         )
 
     def _execute_forked(self, command, prompt: str, context: ToolContext) -> ToolResult:
+        """执行 `forked`。"""
         agent_prompt = self._decorate_fork_prompt(command, prompt)
         return AgentTool().execute_input(
             {
@@ -113,6 +119,7 @@ class SkillTool(Tool):
         )
 
     def _decorate_fork_prompt(self, command, prompt: str) -> str:
+        """处理 `decorate_fork_prompt`。"""
         lines = [prompt.strip()]
         if command.allowed_tools:
             lines.append("")

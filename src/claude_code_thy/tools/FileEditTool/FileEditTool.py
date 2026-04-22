@@ -20,6 +20,7 @@ from .types import EditInstruction
 
 
 class EditTool(Tool):
+    """实现 `Edit` 工具。"""
     name = "edit"
     description = DESCRIPTION
     usage = USAGE
@@ -57,9 +58,11 @@ class EditTool(Tool):
     }
 
     def is_concurrency_safe(self) -> bool:
+        """返回是否满足 `is_concurrency_safe` 条件。"""
         return False
 
     def parse_raw_input(self, raw_args: str, context: ToolContext) -> dict[str, object]:
+        """解析 `raw_input`。"""
         _ = context
         parser = _make_parser("edit", self.description)
         parser.add_argument("path", nargs="?")
@@ -81,6 +84,7 @@ class EditTool(Tool):
         input_data: dict[str, object],
         context: ToolContext,
     ):
+        """校验 `input`。"""
         _ = context
         edits = self._coerce_edits(input_data)
         for edit in edits:
@@ -93,10 +97,12 @@ class EditTool(Tool):
         input_data: dict[str, object],
         context: ToolContext,
     ) -> PermissionResult:
+        """检查 `permissions`。"""
         file_path = str(input_data.get("file_path", "")).strip()
         return _path_permission_result(self.name, file_path, context, input_data)
 
     def prepare_permission_matcher(self, input_data: dict[str, object], context: ToolContext):
+        """处理 `prepare_permission_matcher`。"""
         file_path = str(input_data.get("file_path", "")).strip()
         path = _candidate_path(context, file_path, allow_missing=True)
         return lambda pattern: context.permission_context.match_path_pattern(path, pattern)
@@ -106,6 +112,7 @@ class EditTool(Tool):
         original_input: dict[str, object],
         updated_input: dict[str, object],
     ) -> bool:
+        """处理 `inputs_equivalent`。"""
         return self._normalized_edit_signature(original_input) == self._normalized_edit_signature(
             updated_input
         )
@@ -119,6 +126,7 @@ class EditTool(Tool):
         original_input: dict[str, object] | None = None,
         user_modified: bool = False,
     ) -> ToolResult:
+        """渲染 `tool_use_rejected_message`。"""
         _ = original_input
         file_path = str(input_data.get("file_path", "")).strip()
         edits = self._coerce_edits(input_data)
@@ -186,6 +194,7 @@ class EditTool(Tool):
         )
 
     def execute(self, raw_args: str, context: ToolContext) -> ToolResult:
+        """执行当前流程。"""
         args = self.parse_raw_input(raw_args, context)
         return self._edit(
             context,
@@ -194,6 +203,7 @@ class EditTool(Tool):
         )
 
     def execute_input(self, input_data: dict[str, object], context: ToolContext) -> ToolResult:
+        """执行 `input`。"""
         file_path = str(input_data.get("file_path", "")).strip()
         if not file_path:
             raise ToolError("tool input 缺少 file_path")
@@ -207,6 +217,7 @@ class EditTool(Tool):
         file_path: str,
         edits: list[EditInstruction],
     ) -> ToolResult:
+        """编辑 当前流程。"""
         path = _resolve_path(context, file_path, allow_missing=True, tool_name=self.name)
         context.discover_skills_for_paths([path])
         for edit in edits:
@@ -291,6 +302,7 @@ class EditTool(Tool):
         )
 
     def _coerce_edits(self, input_data: dict[str, object]) -> list[EditInstruction]:
+        """转换 `edits`。"""
         raw_edits = input_data.get("edits")
         if isinstance(raw_edits, list) and raw_edits:
             edits: list[EditInstruction] = []
@@ -321,6 +333,7 @@ class EditTool(Tool):
         ]
 
     def _normalized_edit_signature(self, input_data: dict[str, object]) -> tuple[object, ...]:
+        """处理 `normalized_edit_signature`。"""
         file_path = str(input_data.get("file_path", "")).strip()
         edits = self._coerce_edits(input_data)
         return (

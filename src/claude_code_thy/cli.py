@@ -28,6 +28,7 @@ console = Console(stderr=True)
 
 @dataclass(slots=True)
 class RootInvocation:
+    """表示 `RootInvocation`。"""
     resume: str | None = None
     print_mode: bool = False
     list_sessions: bool = False
@@ -61,6 +62,7 @@ def main(
         help="Override the model for this session.",
     ),
 ) -> None:
+    """运行主入口逻辑。"""
     if ctx.invoked_subcommand:
         return
 
@@ -74,6 +76,7 @@ def main(
 
 
 def run() -> None:
+    """运行当前流程。"""
     invocation = _preprocess_root_invocation(sys.argv[1:])
     if invocation is not None:
         _run_root_command(
@@ -95,6 +98,7 @@ def _run_root_command(
     model: str | None,
     prompt_tokens: list[str],
 ) -> None:
+    """运行 `root_command`。"""
     config = AppConfig.from_env()
     session_store = SessionStore()
     cwd = os.getcwd()
@@ -152,6 +156,7 @@ def _run_root_command(
 
 
 def _preprocess_root_invocation(argv: list[str]) -> RootInvocation | None:
+    """处理 `preprocess_root_invocation`。"""
     invocation = RootInvocation()
     index = 0
 
@@ -200,6 +205,7 @@ def _preprocess_root_invocation(argv: list[str]) -> RootInvocation | None:
 
 
 def _print_recent_sessions(session_store: SessionStore) -> None:
+    """处理 `print_recent_sessions`。"""
     summaries = session_store.list_recent(limit=10)
     if not summaries:
         console.print("No sessions found.")
@@ -229,6 +235,7 @@ async def _run_print_mode(
     session,
     prompt: str,
 ) -> None:
+    """运行 `print_mode`。"""
     prior_message_count = len(session.messages)
     outcome = await runtime.handle(session, prompt)
     session = outcome.session

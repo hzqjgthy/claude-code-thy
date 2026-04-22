@@ -16,6 +16,7 @@ from claude_code_thy.tools.shared.common import (
 
 @dataclass(slots=True)
 class WriteTargetState:
+    """保存 `WriteTargetState`。"""
     previous_content: str | None
     operation: str
     encoding: str = "utf-8"
@@ -29,6 +30,7 @@ def load_existing_text(
     path: Path,
     file_path: str,
 ) -> WriteTargetState:
+    """加载 `existing_text`。"""
     previous_content: str | None = None
     operation = "create"
     encoding = "utf-8"
@@ -63,6 +65,7 @@ def persist_text_file(
     content: str,
     target_state: WriteTargetState,
 ) -> None:
+    """处理 `persist_text_file`。"""
     path.parent.mkdir(parents=True, exist_ok=True)
     write_text_snapshot(
         path,
@@ -81,6 +84,7 @@ def persist_text_file(
 
 
 def success_text(*, file_path: str, operation: str, user_modified: bool = False) -> str:
+    """处理 `success_text`。"""
     modified_note = " The user modified the proposed change before accepting it." if user_modified else ""
     if operation == "update":
         return f"The file {file_path} has been updated successfully.{modified_note}"
@@ -88,5 +92,6 @@ def success_text(*, file_path: str, operation: str, user_modified: bool = False)
 
 
 def summary_text(*, context: ToolContext, path: Path, operation: str) -> str:
+    """处理 `summary_text`。"""
     summary_prefix = "更新文件" if operation == "update" else "创建文件"
     return f"{summary_prefix}：{_display_path(path, context.cwd)}"

@@ -13,9 +13,11 @@ from claude_code_thy.tools import ToolRuntime, build_builtin_tools
 
 
 class FakeProvider(Provider):
+    """实现 `Fake` 提供方。"""
     name = "fake-provider"
 
     async def complete(self, session, tools):
+        """完成当前流程。"""
         return ProviderResponse(
             display_text=f"echo:{session.messages[-1].text}",
             content_blocks=[{"type": "text", "text": f"echo:{session.messages[-1].text}"}],
@@ -23,9 +25,11 @@ class FakeProvider(Provider):
 
 
 class ToolCallingProvider(Provider):
+    """实现 `ToolCalling` 提供方。"""
     name = "tool-calling-provider"
 
     async def complete(self, session, tools):
+        """完成当前流程。"""
         has_tool_result = any(message.role == "tool" for message in session.messages)
         if not has_tool_result:
             return ProviderResponse(
@@ -54,6 +58,7 @@ class ToolCallingProvider(Provider):
 
 
 def test_query_engine_appends_user_and_assistant_messages(tmp_path):
+    """测试 `query_engine_appends_user_and_assistant_messages` 场景。"""
     store = SessionStore(root_dir=tmp_path / "sessions")
     session = store.create(cwd=str(tmp_path), model="glm-4.5", provider_name="fake-provider")
     engine = QueryEngine(
@@ -71,6 +76,7 @@ def test_query_engine_appends_user_and_assistant_messages(tmp_path):
 
 
 def test_query_engine_runs_tool_loop(tmp_path):
+    """测试 `query_engine_runs_tool_loop` 场景。"""
     store = SessionStore(root_dir=tmp_path / "sessions")
     (tmp_path / "README.md").write_text("tool loop content", encoding="utf-8")
     session = store.create(cwd=str(tmp_path), model="glm-4.5", provider_name="tool-calling-provider")
@@ -89,20 +95,26 @@ def test_query_engine_runs_tool_loop(tmp_path):
 
 
 class _FakeOpenAIResponse:
+    """保存 `_FakeOpenAIResponse`。"""
     def __init__(self, payload: dict[str, object]) -> None:
+        """初始化实例状态。"""
         self._body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
 
     def __enter__(self):
+        """进入上下文。"""
         return self
 
     def __exit__(self, exc_type, exc, tb):
+        """退出上下文。"""
         return False
 
     def read(self) -> bytes:
+        """读取 当前流程。"""
         return self._body
 
 
 def test_query_engine_runs_tool_loop_with_openai_responses_provider(monkeypatch, tmp_path):
+    """测试 `query_engine_runs_tool_loop_with_openai_responses_provider` 场景。"""
     captured_payloads: list[dict[str, object]] = []
     readme = tmp_path / "README.md"
     readme.write_text("tool loop content", encoding="utf-8")
@@ -123,6 +135,7 @@ def test_query_engine_runs_tool_loop_with_openai_responses_provider(monkeypatch,
     )
 
     def fake_urlopen(request, timeout):
+        """处理 `fake_urlopen`。"""
         _ = timeout
         payload = json.loads(request.data.decode("utf-8"))
         captured_payloads.append(payload)
@@ -169,19 +182,24 @@ def test_query_engine_runs_tool_loop_with_openai_responses_provider(monkeypatch,
 
 
 class DummyProvider(Provider):
+    """实现 `Dummy` 提供方。"""
     name = "dummy"
 
     async def complete(self, session, tools):
+        """完成当前流程。"""
         return ProviderResponse(display_text="done", content_blocks=[{"type": "text", "text": "done"}], tool_calls=[])
 
 
 class FailIfCalledAgainProvider(Provider):
+    """实现 `FailIfCalledAgain` 提供方。"""
     name = "fail-if-called-again"
 
     def __init__(self) -> None:
+        """初始化实例状态。"""
         self.calls = 0
 
     async def complete(self, session, tools):
+        """完成当前流程。"""
         self.calls += 1
         if self.calls > 1:
             raise AssertionError("provider.complete should not be called again after MCP tool result")
@@ -206,6 +224,7 @@ class FailIfCalledAgainProvider(Provider):
 
 
 def test_runtime_explicit_mcp_tool_request_executes_without_model_tool_choice(tmp_path):
+    """测试 `runtime_explicit_mcp_tool_request_executes_without_model_tool_choice` 场景。"""
     store = SessionStore(root_dir=tmp_path / "sessions")
     runtime = ConversationRuntime(provider=DummyProvider(), session_store=store)
     session = store.create(cwd=str(tmp_path), model="dummy", provider_name="dummy")
@@ -213,10 +232,13 @@ def test_runtime_explicit_mcp_tool_request_executes_without_model_tool_choice(tm
     services = runtime.tool_runtime.services_for(session)
 
     class DummyMgr:
+        """表示 `DummyMgr`。"""
         async def refresh_all(self):
+            """刷新 `all`。"""
             return []
 
         def cached_tools(self):
+            """处理 `cached_tools`。"""
             return {
                 "xiaohongshu-mcp": [
                     McpToolDefinition(
@@ -229,12 +251,15 @@ def test_runtime_explicit_mcp_tool_request_executes_without_model_tool_choice(tm
             }
 
         def cached_prompts(self):
+            """处理 `cached_prompts`。"""
             return {}
 
         def cached_resources(self):
+            """处理 `cached_resources`。"""
             return {}
 
         async def call_tool(self, server_name, tool_name, arguments=None):
+            """处理 `call_tool`。"""
             return {"content": "logged-in"}
 
     services.mcp_manager = DummyMgr()
@@ -250,6 +275,7 @@ def test_runtime_explicit_mcp_tool_request_executes_without_model_tool_choice(tm
 
 
 def test_runtime_approved_non_readonly_mcp_tool_does_not_prompt_again(tmp_path):
+    """测试 `runtime_approved_non_readonly_mcp_tool_does_not_prompt_again` 场景。"""
     store = SessionStore(root_dir=tmp_path / "sessions")
     runtime = ConversationRuntime(provider=DummyProvider(), session_store=store)
     session = store.create(cwd=str(tmp_path), model="dummy", provider_name="dummy")
@@ -260,10 +286,13 @@ def test_runtime_approved_non_readonly_mcp_tool_does_not_prompt_again(tmp_path):
     services = runtime.tool_runtime.services_for(session)
 
     class DummyMgr:
+        """表示 `DummyMgr`。"""
         async def refresh_all(self):
+            """刷新 `all`。"""
             return []
 
         def cached_tools(self):
+            """处理 `cached_tools`。"""
             return {
                 "xiaohongshu-mcp": [
                     McpToolDefinition(
@@ -276,12 +305,15 @@ def test_runtime_approved_non_readonly_mcp_tool_does_not_prompt_again(tmp_path):
             }
 
         def cached_prompts(self):
+            """处理 `cached_prompts`。"""
             return {}
 
         def cached_resources(self):
+            """处理 `cached_resources`。"""
             return {}
 
         async def call_tool(self, server_name, tool_name, arguments=None):
+            """处理 `call_tool`。"""
             return {"content": "liked"}
 
     services.mcp_manager = DummyMgr()
@@ -299,6 +331,7 @@ def test_runtime_approved_non_readonly_mcp_tool_does_not_prompt_again(tmp_path):
 
 
 def test_query_engine_pauses_after_mcp_tool_result_without_second_provider_round(tmp_path):
+    """测试 `query_engine_pauses_after_mcp_tool_result_without_second_provider_round` 场景。"""
     store = SessionStore(root_dir=tmp_path / "sessions")
     provider = FailIfCalledAgainProvider()
     session = store.create(cwd=str(tmp_path), model="dummy", provider_name="dummy")
@@ -310,10 +343,13 @@ def test_query_engine_pauses_after_mcp_tool_result_without_second_provider_round
     services = engine.tool_runtime.services_for(session)
 
     class DummyMgr:
+        """表示 `DummyMgr`。"""
         async def refresh_all(self):
+            """刷新 `all`。"""
             return []
 
         def cached_tools(self):
+            """处理 `cached_tools`。"""
             return {
                 "xiaohongshu-mcp": [
                     McpToolDefinition(
@@ -326,12 +362,15 @@ def test_query_engine_pauses_after_mcp_tool_result_without_second_provider_round
             }
 
         def cached_prompts(self):
+            """处理 `cached_prompts`。"""
             return {}
 
         def cached_resources(self):
+            """处理 `cached_resources`。"""
             return {}
 
         async def call_tool(self, server_name, tool_name, arguments=None):
+            """处理 `call_tool`。"""
             return {"content": "logged-in"}
 
     services.mcp_manager = DummyMgr()
@@ -344,6 +383,7 @@ def test_query_engine_pauses_after_mcp_tool_result_without_second_provider_round
 
 
 def test_resume_pending_mcp_tool_call_pauses_after_tool_result(tmp_path):
+    """测试 `resume_pending_mcp_tool_call_pauses_after_tool_result` 场景。"""
     store = SessionStore(root_dir=tmp_path / "sessions")
     provider = DummyProvider()
     session = store.create(cwd=str(tmp_path), model="dummy", provider_name="dummy")
@@ -355,10 +395,13 @@ def test_resume_pending_mcp_tool_call_pauses_after_tool_result(tmp_path):
     services = engine.tool_runtime.services_for(session)
 
     class DummyMgr:
+        """表示 `DummyMgr`。"""
         async def refresh_all(self):
+            """刷新 `all`。"""
             return []
 
         def cached_tools(self):
+            """处理 `cached_tools`。"""
             return {
                 "xiaohongshu-mcp": [
                     McpToolDefinition(
@@ -371,12 +414,15 @@ def test_resume_pending_mcp_tool_call_pauses_after_tool_result(tmp_path):
             }
 
         def cached_prompts(self):
+            """处理 `cached_prompts`。"""
             return {}
 
         def cached_resources(self):
+            """处理 `cached_resources`。"""
             return {}
 
         async def call_tool(self, server_name, tool_name, arguments=None):
+            """处理 `call_tool`。"""
             return {"content": "liked"}
 
     services.mcp_manager = DummyMgr()
@@ -415,6 +461,7 @@ def test_resume_pending_mcp_tool_call_pauses_after_tool_result(tmp_path):
 
 
 def test_query_engine_mcp_tool_call_does_not_block_event_loop(tmp_path):
+    """测试 `query_engine_mcp_tool_call_does_not_block_event_loop` 场景。"""
     store = SessionStore(root_dir=tmp_path / "sessions")
     provider = FailIfCalledAgainProvider()
     session = store.create(cwd=str(tmp_path), model="dummy", provider_name="dummy")
@@ -426,10 +473,13 @@ def test_query_engine_mcp_tool_call_does_not_block_event_loop(tmp_path):
     services = engine.tool_runtime.services_for(session)
 
     class DummyMgr:
+        """表示 `DummyMgr`。"""
         async def refresh_all(self):
+            """刷新 `all`。"""
             return []
 
         def cached_tools(self):
+            """处理 `cached_tools`。"""
             return {
                 "xiaohongshu-mcp": [
                     McpToolDefinition(
@@ -442,12 +492,15 @@ def test_query_engine_mcp_tool_call_does_not_block_event_loop(tmp_path):
             }
 
         def cached_prompts(self):
+            """处理 `cached_prompts`。"""
             return {}
 
         def cached_resources(self):
+            """处理 `cached_resources`。"""
             return {}
 
         async def call_tool(self, server_name, tool_name, arguments=None):
+            """处理 `call_tool`。"""
             await asyncio.sleep(0.05)
             return {"content": "logged-in"}
 
@@ -456,12 +509,14 @@ def test_query_engine_mcp_tool_call_does_not_block_event_loop(tmp_path):
     done = False
 
     async def ticker():
+        """处理 `ticker`。"""
         nonlocal tick_count
         while not done:
             tick_count += 1
             await asyncio.sleep(0.005)
 
     async def run():
+        """运行当前流程。"""
         nonlocal done
         ticker_task = asyncio.create_task(ticker())
         try:
@@ -478,6 +533,7 @@ def test_query_engine_mcp_tool_call_does_not_block_event_loop(tmp_path):
 
 
 def test_resume_pending_mcp_tool_call_does_not_block_event_loop(tmp_path):
+    """测试 `resume_pending_mcp_tool_call_does_not_block_event_loop` 场景。"""
     store = SessionStore(root_dir=tmp_path / "sessions")
     provider = DummyProvider()
     session = store.create(cwd=str(tmp_path), model="dummy", provider_name="dummy")
@@ -489,10 +545,13 @@ def test_resume_pending_mcp_tool_call_does_not_block_event_loop(tmp_path):
     services = engine.tool_runtime.services_for(session)
 
     class DummyMgr:
+        """表示 `DummyMgr`。"""
         async def refresh_all(self):
+            """刷新 `all`。"""
             return []
 
         def cached_tools(self):
+            """处理 `cached_tools`。"""
             return {
                 "xiaohongshu-mcp": [
                     McpToolDefinition(
@@ -505,12 +564,15 @@ def test_resume_pending_mcp_tool_call_does_not_block_event_loop(tmp_path):
             }
 
         def cached_prompts(self):
+            """处理 `cached_prompts`。"""
             return {}
 
         def cached_resources(self):
+            """处理 `cached_resources`。"""
             return {}
 
         async def call_tool(self, server_name, tool_name, arguments=None):
+            """处理 `call_tool`。"""
             await asyncio.sleep(0.05)
             return {"content": "liked"}
 
@@ -539,12 +601,14 @@ def test_resume_pending_mcp_tool_call_does_not_block_event_loop(tmp_path):
     done = False
 
     async def ticker():
+        """处理 `ticker`。"""
         nonlocal tick_count
         while not done:
             tick_count += 1
             await asyncio.sleep(0.005)
 
     async def run():
+        """运行当前流程。"""
         nonlocal done
         ticker_task = asyncio.create_task(ticker())
         try:

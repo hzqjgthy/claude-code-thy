@@ -9,6 +9,7 @@ from claude_code_thy.tools import ToolRuntime, build_builtin_tools
 
 
 async def serve_mcp_stdio(cwd: str) -> None:
+    """处理 `serve_mcp_stdio`。"""
     try:
         from mcp.server.lowlevel import NotificationOptions, Server
         from mcp.server.stdio import stdio_server
@@ -30,6 +31,7 @@ async def serve_mcp_stdio(cwd: str) -> None:
 
     @server.list_tools()
     async def list_tools() -> list[Tool]:
+        """列出 `tools`。"""
         tools: list[Tool] = []
         for spec in runtime.list_tool_specs():
             tools.append(
@@ -43,6 +45,7 @@ async def serve_mcp_stdio(cwd: str) -> None:
 
     @server.call_tool()
     async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
+        """处理 `call_tool`。"""
         result = runtime.execute_input(
             name,
             arguments or {},

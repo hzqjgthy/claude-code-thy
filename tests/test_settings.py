@@ -4,6 +4,7 @@ from claude_code_thy.settings import AppSettings
 
 
 def test_load_for_workspace_merges_settings_json_and_local(tmp_path):
+    """测试 `load_for_workspace_merges_settings_json_and_local` 场景。"""
     settings_dir = tmp_path / ".claude-code-thy"
     settings_dir.mkdir()
     (settings_dir / "settings.json").write_text(
@@ -67,6 +68,7 @@ def test_load_for_workspace_merges_settings_json_and_local(tmp_path):
 
 
 def test_load_for_workspace_local_overrides_scalar_values(tmp_path):
+    """测试 `load_for_workspace_local_overrides_scalar_values` 场景。"""
     settings_dir = tmp_path / ".claude-code-thy"
     settings_dir.mkdir()
     (settings_dir / "settings.json").write_text(
@@ -96,6 +98,7 @@ def test_load_for_workspace_local_overrides_scalar_values(tmp_path):
 
 
 def test_load_for_workspace_ignores_invalid_base_and_uses_valid_local(tmp_path):
+    """测试 `load_for_workspace_ignores_invalid_base_and_uses_valid_local` 场景。"""
     settings_dir = tmp_path / ".claude-code-thy"
     settings_dir.mkdir()
     (settings_dir / "settings.json").write_text("{invalid json", encoding="utf-8")

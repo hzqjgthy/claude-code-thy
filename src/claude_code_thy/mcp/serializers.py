@@ -4,6 +4,7 @@ import json
 
 
 def to_jsonable(value: object) -> object:
+    """转换为 `jsonable`。"""
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
     if isinstance(value, dict):
@@ -28,10 +29,12 @@ def to_jsonable(value: object) -> object:
 
 
 def render_jsonable(value: object) -> str:
+    """渲染 `jsonable`。"""
     return json.dumps(value, ensure_ascii=False, indent=2)
 
 
 def serialize_mcp_tool_result(result: object) -> tuple[str, object]:
+    """序列化 `mcp_tool_result`。"""
     if result is None:
         return "", {}
     content = getattr(result, "content", None)
@@ -47,6 +50,7 @@ def serialize_mcp_tool_result(result: object) -> tuple[str, object]:
 
 
 def render_prompt_result(result: object) -> str:
+    """渲染 `prompt_result`。"""
     if result is None:
         return ""
     messages = getattr(result, "messages", None)
@@ -69,6 +73,7 @@ def render_prompt_result(result: object) -> str:
 
 
 def serialize_resource_read_result(result: object) -> tuple[str, dict[str, object]]:
+    """序列化 `resource_read_result`。"""
     if result is None:
         return "", {"contents": []}
     contents = getattr(result, "contents", None)
@@ -93,6 +98,7 @@ def serialize_resource_read_result(result: object) -> tuple[str, dict[str, objec
 
 
 def _extract_text_parts(raw_items: list[object], normalized_items: list[object]) -> list[str]:
+    """提取 `text_parts`。"""
     text_parts: list[str] = []
     for raw_item, normalized in zip(raw_items, normalized_items, strict=False):
         if isinstance(normalized, dict) and isinstance(normalized.get("text"), str):
@@ -105,10 +111,12 @@ def _extract_text_parts(raw_items: list[object], normalized_items: list[object])
 
 
 def _join_text_parts(parts: list[str]) -> str:
+    """处理 `join_text_parts`。"""
     return "\n".join(part for part in parts if part.strip())
 
 
 def _resource_entry(item: object) -> dict[str, object]:
+    """处理 `resource_entry`。"""
     if isinstance(item, dict):
         return {str(key): to_jsonable(value) for key, value in item.items()}
     entry: dict[str, object] = {}

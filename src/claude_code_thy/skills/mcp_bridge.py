@@ -14,6 +14,7 @@ def build_mcp_prompt_specs(
     server_name: str,
     prompts: list[McpPromptDefinition],
 ) -> list[PromptCommandSpec]:
+    """把 MCP prompt 定义转换成统一的命令描述对象。"""
     return [
         PromptCommandSpec(
             name=build_prompt_command_name(server_name, prompt.name),
@@ -36,6 +37,7 @@ def build_mcp_prompt_specs(
 def discover_mcp_skill_resources(
     resources: list[McpResourceDefinition],
 ) -> list[McpResourceDefinition]:
+    """从资源列表中找出看起来像 skill 文档的 MCP 资源。"""
     discovered: list[McpResourceDefinition] = []
     for resource in resources:
         uri = resource.uri.lower()
@@ -50,6 +52,7 @@ def build_mcp_skill_spec(
     resource: McpResourceDefinition,
     result: object,
 ) -> PromptCommandSpec | None:
+    """读取 MCP skill 资源内容，并按本地 skill 的同一套规则解析。"""
     output, structured = serialize_resource_read_result(result)
     content = _extract_skill_markdown(output, structured)
     if not content.strip():
@@ -91,6 +94,7 @@ def build_mcp_skill_spec(
 
 
 def _extract_skill_markdown(output: str, structured: dict[str, object]) -> str:
+    """优先从字符串输出中取 markdown，必要时回退到结构化 contents。"""
     if output.strip():
         return output
     contents = structured.get("contents")
@@ -103,6 +107,7 @@ def _extract_skill_markdown(output: str, structured: dict[str, object]) -> str:
 
 
 def _skill_name_from_resource(resource: McpResourceDefinition) -> str:
+    """根据 skill URI 或资源名推导稳定的命令名后缀。"""
     uri = resource.uri
     if uri.startswith("skill://"):
         suffix = uri[len("skill://") :]

@@ -8,6 +8,7 @@ from .utils import iter_shell_commands
 
 @dataclass(slots=True)
 class BashStructureAnalysis:
+    """表示 `BashStructureAnalysis`。"""
     backend: str
     commands: tuple[str, ...]
     connectors: tuple[str, ...]
@@ -20,6 +21,7 @@ class BashStructureAnalysis:
     warnings: tuple[str, ...] = field(default_factory=tuple)
 
     def to_dict(self) -> dict[str, object]:
+        """转换为 `dict`。"""
         return asdict(self)
 
 
@@ -30,6 +32,7 @@ FUNCTION_RE = re.compile(
 
 
 def analyze_bash_structure(command: str) -> BashStructureAnalysis:
+    """处理 `analyze_bash_structure`。"""
     try:
         import bashlex  # type: ignore
     except Exception:
@@ -38,6 +41,7 @@ def analyze_bash_structure(command: str) -> BashStructureAnalysis:
 
 
 def _bashlex_analysis(command: str, bashlex) -> BashStructureAnalysis:
+    """处理 `bashlex_analysis`。"""
     warnings: list[str] = []
     max_nesting = 0
     current_nesting = 0
@@ -53,6 +57,7 @@ def _bashlex_analysis(command: str, bashlex) -> BashStructureAnalysis:
         return _heuristic_analysis(command, warnings=warnings)
 
     def walk(node) -> None:
+        """处理 `walk`。"""
         nonlocal max_nesting, current_nesting, has_subshell, has_command_substitution, has_process_substitution
         kind = getattr(node, "kind", "")
         if kind in {"commandsubstitution", "processsubstitution", "subshell"}:
@@ -92,6 +97,7 @@ def _bashlex_analysis(command: str, bashlex) -> BashStructureAnalysis:
 
 
 def _heuristic_analysis(command: str, *, warnings: list[str] | None = None) -> BashStructureAnalysis:
+    """处理 `heuristic_analysis`。"""
     warnings = list(warnings or [])
     has_subshell = False
     has_command_substitution = False

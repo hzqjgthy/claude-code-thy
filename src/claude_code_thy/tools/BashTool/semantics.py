@@ -11,6 +11,7 @@ from .utils import split_shell_segments
 
 
 def classify_shell_command(command: str) -> dict[str, bool]:
+    """处理 `classify_shell_command`。"""
     segments = split_shell_segments(command)
     if not segments:
         return {"is_search": False, "is_read": False, "is_list": False}
@@ -54,6 +55,7 @@ def classify_shell_command(command: str) -> dict[str, bool]:
 
 
 def is_silent_shell_command(command: str) -> bool:
+    """返回是否满足 `is_silent_shell_command` 条件。"""
     segments = split_shell_segments(command)
     if not segments:
         return False

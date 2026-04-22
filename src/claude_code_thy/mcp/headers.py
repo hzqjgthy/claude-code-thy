@@ -8,6 +8,7 @@ from .types import McpServerConfig
 
 
 def get_server_headers(config: McpServerConfig) -> dict[str, str]:
+    """返回 `server_headers`。"""
     headers = {
         **get_oauth_authorization_header(config),
         **dict(config.headers),

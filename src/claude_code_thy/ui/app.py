@@ -29,6 +29,7 @@ from claude_code_thy.ui.tool_views import (
 
 
 def format_cwd(path: str) -> str:
+    """把用户目录前缀折叠成 `~`，让界面显示更紧凑。"""
     home = str(Path.home())
     if path.startswith(home):
         return path.replace(home, "~", 1)
@@ -36,6 +37,7 @@ def format_cwd(path: str) -> str:
 
 
 class ClaudeCodeThyApp(App[None]):
+    """基于 Textual 的交互式终端界面应用。"""
     CSS_PATH = "styles.tcss"
     BINDINGS = [("ctrl+c", "quit", "Quit")]
 
@@ -46,17 +48,20 @@ class ClaudeCodeThyApp(App[None]):
         session_store: SessionStore,
         provider: Provider,
     ) -> None:
+        """保存当前会话和 provider，并构建对话运行时。"""
         super().__init__()
         self.session = session
         self.session_store = session_store
         self.provider = provider
         self._pending_prompt: str | None = None
+        self._hero_signature: tuple[str, str | None, str] | None = None
         self.runtime = ConversationRuntime(
             provider=provider,
             session_store=session_store,
         )
 
     def compose(self) -> ComposeResult:
+        """声明聊天区、状态栏、恢复提示和输入框的界面结构。"""
         yield Static(id="hero")
         with VerticalScroll(id="chat_surface"):
             yield Vertical(id="message_list")
@@ -67,6 +72,7 @@ class ClaudeCodeThyApp(App[None]):
                 yield Input(placeholder="", id="prompt_input")
 
     def on_mount(self) -> None:
+        """首次挂载时渲染界面初始状态并聚焦输入框。"""
         self._render_hero()
         self._render_messages()
         self._render_resume_hint()
@@ -74,6 +80,7 @@ class ClaudeCodeThyApp(App[None]):
         self.query_one("#prompt_input", Input).focus()
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
+        """提交一条用户输入，并在后台线程里推进会话。"""
         prompt = event.value.strip()
         if not prompt:
             return
@@ -105,6 +112,7 @@ class ClaudeCodeThyApp(App[None]):
         session: SessionTranscript,
         prompt: str,
     ):
+        """在同步上下文里包装一次异步 runtime.handle 调用。"""
         return asyncio.run(
             self.runtime.handle(
                 session,
@@ -114,9 +122,15 @@ class ClaudeCodeThyApp(App[None]):
         )
 
     def _render_hero(self) -> None:
+        """仅在 welcome 区关键状态变化时刷新顶部欢迎面板。"""
+        signature = self._current_hero_signature()
+        if self._hero_signature == signature:
+            return
         self.query_one("#hero", Static).update(self._build_hero_panel())
+        self._hero_signature = signature
 
     def _render_messages(self) -> None:
+        """根据当前会话消息重建聊天消息列表。"""
         message_list = self.query_one("#message_list", Vertical)
         message_list.remove_children()
 
@@ -135,6 +149,7 @@ class ClaudeCodeThyApp(App[None]):
         self._scroll_chat_end()
 
     def _render_resume_hint(self) -> None:
+        """刷新底部的会话恢复命令提示。"""
         hint = (
             "Resume this session with:\n"
             f"claude-code-thy --resume {self.session.session_id}"
@@ -143,10 +158,12 @@ class ClaudeCodeThyApp(App[None]):
         self._scroll_chat_end()
 
     def _set_tool_status(self, text: str) -> None:
+        """更新底部工具状态栏文本。"""
         self.query_one("#tool_status", Static).update(Text(text, style="#9aa4b2"))
         self._scroll_chat_end()
 
     def _update_tool_status_from_messages(self) -> None:
+        """根据最新消息和后台任务状态推导状态栏内容。"""
         running_tasks = []
         try:
             running_tasks = [
@@ -174,6 +191,7 @@ class ClaudeCodeThyApp(App[None]):
         self._set_tool_status("")
 
     def _build_message(self, message: ChatMessage) -> RenderableType | None:
+        """把一条会话消息转换成适合 Textual 渲染的块。"""
         metadata = message.metadata or {}
 
         if message.role == "user":
@@ -203,6 +221,7 @@ class ClaudeCodeThyApp(App[None]):
         return Group(Text(""), Text.assemble(prefix, body))
 
     def _should_render_task_notification(self, metadata: dict[str, object]) -> bool:
+        """只渲染属于当前会话的任务通知，避免串会话。"""
         task_id = str(metadata.get("task_id", "")).strip()
         if not task_id:
             return False
@@ -215,9 +234,11 @@ class ClaudeCodeThyApp(App[None]):
         return str(task.metadata.get("session_id", "")).strip() == self.session.session_id
 
     def _scroll_chat_end(self) -> None:
+        """把聊天区域滚动到最新一条消息。"""
         self.query_one("#chat_surface", VerticalScroll).scroll_end(animate=False)
 
     def _build_hero_panel(self) -> RenderableType:
+        """构造顶部欢迎区，包含模型、路径和最近活动提示。"""
         left = Group(
             Text(""),
             Align.center(Text("Welcome back!", style="bold #f5f7fa")),
@@ -255,7 +276,16 @@ class ClaudeCodeThyApp(App[None]):
             padding=(1, 1),
         )
 
+    def _current_hero_signature(self) -> tuple[str, str | None, str]:
+        """提取决定 welcome 区是否需要重绘的最小状态。"""
+        return (
+            self.session.session_id,
+            self.session.model,
+            self.session.cwd,
+        )
+
     def _build_recent_activity_lines(self) -> list[RenderableType]:
+        """从最近会话里挑一条记录显示在欢迎区侧栏。"""
         recent = [
             summary
             for summary in self.session_store.list_recent(limit=4)

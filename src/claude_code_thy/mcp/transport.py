@@ -15,13 +15,16 @@ from .types import McpServerConfig
 
 @dataclass(slots=True)
 class _ManagedConnection:
+    """保存一次 MCP 连接的配置、资源清理栈和 session 对象。"""
     config: McpServerConfig
     stack: AsyncExitStack
     session: Any
 
 
 class McpTransportLayer:
+    """负责建立、复用和关闭不同 transport 类型的 MCP 连接。"""
     def __init__(self, settings: AppSettings, catalog: McpCatalog) -> None:
+        """保存 settings、catalog 和连接缓存。"""
         self.settings = settings
         self.catalog = catalog
         self._handles: dict[str, _ManagedConnection] = {}
@@ -29,16 +32,20 @@ class McpTransportLayer:
 
     @property
     def handles(self) -> dict[str, _ManagedConnection]:
+        """暴露当前持久连接句柄缓存。"""
         return self._handles
 
     @property
     def lock(self) -> asyncio.Lock:
+        """暴露连接级互斥锁，避免并发刷新打架。"""
         return self._lock
 
     def connect_timeout_seconds(self) -> float:
+        """把设置里的连接超时毫秒值转换成秒。"""
         return max(self.settings.mcp.connect_timeout_ms / 1000, 1.0)
 
     def tool_timeout_seconds(self) -> float:
+        """把设置里的工具调用超时毫秒值转换成秒。"""
         return max(self.settings.mcp.tool_call_timeout_ms / 1000, 1.0)
 
     async def get_persistent_handle(
@@ -49,6 +56,7 @@ class McpTransportLayer:
         force_reconnect: bool,
         open_connection,
     ) -> _ManagedConnection | None:
+        """获取或重建一个可复用的持久连接句柄。"""
         existing = self._handles.get(name)
         if existing is not None and not force_reconnect and existing.config.signature == config.signature:
             self.catalog.mark_connected(name, config)
@@ -75,6 +83,7 @@ class McpTransportLayer:
         *,
         open_connection,
     ) -> _ManagedConnection:
+        """为 HTTP 请求打开一次性连接，用后由调用方负责关闭。"""
         self.catalog.mark_pending(name, config)
         try:
             handle = await open_connection(config)
@@ -85,15 +94,18 @@ class McpTransportLayer:
         return handle
 
     async def close_handle(self, name: str) -> None:
+        """关闭并移除一个持久连接句柄。"""
         handle = self._handles.pop(name, None)
         if handle is not None:
             await handle.stack.aclose()
 
     async def close_all(self) -> None:
+        """关闭所有持久连接。"""
         for name in list(self._handles):
             await self.close_handle(name)
 
     async def open_connection(self, config: McpServerConfig) -> _ManagedConnection:
+        """按 transport 类型建立 MCP 连接，并完成 session.initialize。"""
         stack = AsyncExitStack()
         try:
             client_imports = _import_mcp_client()
@@ -161,6 +173,7 @@ class McpTransportLayer:
         *,
         timeout_message: str | None = None,
     ) -> Any:
+        """给 session 操作统一包一层超时和异常转换。"""
         try:
             if timeout_message is not None:
                 return await asyncio.wait_for(
@@ -174,6 +187,7 @@ class McpTransportLayer:
             raise McpRuntimeError(str(error)) from error
 
     async def close_stack_quietly(self, stack: AsyncExitStack) -> None:
+        """静默关闭 AsyncExitStack，不把清理异常继续抛出。"""
         try:
             await stack.aclose()
         except Exception:
@@ -181,6 +195,7 @@ class McpTransportLayer:
 
 
 def _import_mcp_client() -> dict[str, Any]:
+    """延迟导入 MCP SDK，并兼容不同版本里可选的 SSE 客户端。"""
     try:
         from mcp import ClientSession, StdioServerParameters
         from mcp.client.stdio import stdio_client

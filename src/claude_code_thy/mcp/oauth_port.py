@@ -9,13 +9,16 @@ from urllib.parse import parse_qs, urlparse
 
 @dataclass(slots=True)
 class OAuthCallbackResult:
+    """保存 `OAuthCallbackResult`。"""
     code: str | None = None
     state: str | None = None
     error: str | None = None
 
 
 class OAuthCallbackServer:
+    """表示 `OAuthCallbackServer`。"""
     def __init__(self, port: int, expected_state: str) -> None:
+        """初始化实例状态。"""
         self._queue: Queue[OAuthCallbackResult] = Queue(maxsize=1)
         self._expected_state = expected_state
         self._server = HTTPServer(("127.0.0.1", port), self._handler_type())
@@ -24,27 +27,33 @@ class OAuthCallbackServer:
 
     @property
     def redirect_uri(self) -> str:
+        """处理 `redirect_uri`。"""
         host, port = self._server.server_address
         return f"http://{host}:{port}/callback"
 
     def wait_for_result(self, timeout_seconds: float = 600.0) -> OAuthCallbackResult:
+        """等待 `for_result`。"""
         try:
             return self._queue.get(timeout=timeout_seconds)
         except Empty:
             return OAuthCallbackResult(error="OAuth callback timed out")
 
     def close(self) -> None:
+        """关闭 当前流程。"""
         self._server.shutdown()
         self._server.server_close()
         if self._thread.is_alive():
             self._thread.join(timeout=1)
 
     def _handler_type(self):
+        """处理 `handler_type`。"""
         queue = self._queue
         expected_state = self._expected_state
 
         class CallbackHandler(BaseHTTPRequestHandler):
+            """表示 `CallbackHandler`。"""
             def do_GET(self) -> None:  # noqa: N802
+                """处理 `do_GET`。"""
                 parsed = urlparse(self.path)
                 if parsed.path != "/callback":
                     self.send_response(404)
@@ -73,6 +82,7 @@ class OAuthCallbackServer:
                     pass
 
             def _respond(self, status: int, body: str) -> None:
+                """处理 `respond`。"""
                 payload = body.encode("utf-8")
                 self.send_response(status)
                 self.send_header("Content-Type", "text/plain; charset=utf-8")
@@ -81,12 +91,14 @@ class OAuthCallbackServer:
                 self.wfile.write(payload)
 
             def log_message(self, format: str, *args) -> None:  # noqa: A003
+                """处理 `log_message`。"""
                 _ = (format, args)
 
         return CallbackHandler
 
 
 def _first(values: list[str] | None) -> str | None:
+    """处理 `first`。"""
     if not values:
         return None
     return values[0]

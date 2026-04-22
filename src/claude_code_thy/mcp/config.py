@@ -13,6 +13,7 @@ MCP_JSON_FILENAME = ".mcp.json"
 
 
 def get_project_mcp_config_path(workspace_root: Path) -> Path:
+    """返回 `project_mcp_config_path`。"""
     return workspace_root / MCP_JSON_FILENAME
 
 
@@ -20,6 +21,7 @@ def get_all_mcp_configs(
     workspace_root: Path,
     settings: AppSettings,
 ) -> dict[str, McpServerConfig]:
+    """返回 `all_mcp_configs`。"""
     configs: dict[str, McpServerConfig] = {}
     if settings.mcp.enabled:
         configs.update(_configs_from_settings(settings.mcp))
@@ -32,6 +34,7 @@ def add_project_mcp_server(
     name: str,
     raw_config: dict[str, object],
 ) -> Path:
+    """添加 `project_mcp_server`。"""
     path = get_project_mcp_config_path(workspace_root)
     current = read_json_file(path) or {}
     servers = current.get("mcpServers")
@@ -44,6 +47,7 @@ def add_project_mcp_server(
 
 
 def remove_project_mcp_server(workspace_root: Path, name: str) -> Path:
+    """移除 `project_mcp_server`。"""
     path = get_project_mcp_config_path(workspace_root)
     current = read_json_file(path) or {}
     servers = current.get("mcpServers")
@@ -56,6 +60,7 @@ def remove_project_mcp_server(workspace_root: Path, name: str) -> Path:
 
 
 def _configs_from_settings(settings: McpSettings) -> dict[str, McpServerConfig]:
+    """处理 `configs_from_settings`。"""
     configs: dict[str, McpServerConfig] = {}
     for name, raw in settings.servers.items():
         try:
@@ -66,6 +71,7 @@ def _configs_from_settings(settings: McpSettings) -> dict[str, McpServerConfig]:
 
 
 def _configs_from_project_file(workspace_root: Path) -> dict[str, McpServerConfig]:
+    """处理 `configs_from_project_file`。"""
     path = get_project_mcp_config_path(workspace_root)
     data = read_json_file(path)
     if not data:
@@ -90,6 +96,7 @@ def parse_server_config(
     *,
     scope: str,
 ) -> McpServerConfig:
+    """解析 `server_config`。"""
     transport = str(raw.get("type", "stdio")).strip() or "stdio"
     if transport not in {"stdio", "sse", "http", "ws", "sdk", "sse-ide", "claudeai-proxy"}:
         raise ValueError(f"unsupported MCP transport: {transport}")

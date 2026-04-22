@@ -18,6 +18,7 @@ def validate_bash_command(
     *,
     dangerous_disable_sandbox: bool,
 ) -> BashStructureAnalysis:
+    """校验 `bash_command`。"""
     analysis = analyze_bash_structure(command)
     if analysis.warnings:
         raise ToolError("; ".join(analysis.warnings))

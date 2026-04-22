@@ -20,6 +20,7 @@ from .search import grep_with_python, grep_with_rg
 
 
 class GrepTool(Tool):
+    """实现 `Grep` 工具。"""
     name = "grep"
     description = DESCRIPTION
     usage = USAGE
@@ -48,15 +49,19 @@ class GrepTool(Tool):
     }
 
     def is_read_only(self) -> bool:
+        """返回是否满足 `is_read_only` 条件。"""
         return True
 
     def is_concurrency_safe(self) -> bool:
+        """返回是否满足 `is_concurrency_safe` 条件。"""
         return True
 
     def search_behavior(self) -> dict[str, bool]:
+        """搜索 `behavior`。"""
         return {"is_search": True, "is_read": False}
 
     def parse_raw_input(self, raw_args: str, context: ToolContext) -> dict[str, object]:
+        """解析 `raw_input`。"""
         _ = context
         parser = _make_parser("grep", self.description)
         parser.add_argument("pattern", nargs="?")
@@ -107,17 +112,20 @@ class GrepTool(Tool):
         input_data: dict[str, object],
         context: ToolContext,
     ) -> PermissionResult:
+        """检查 `permissions`。"""
         raw_path = str(input_data.get("path", "")).strip()
         if not raw_path:
             return PermissionResult.allow(updated_input=input_data)
         return _path_permission_result(self.name, raw_path, context, input_data)
 
     def prepare_permission_matcher(self, input_data: dict[str, object], context: ToolContext):
+        """处理 `prepare_permission_matcher`。"""
         raw_path = str(input_data.get("path", "")).strip()
         path = _candidate_path(context, raw_path or ".", allow_missing=True)
         return lambda pattern: context.permission_context.match_path_pattern(path, pattern)
 
     def execute(self, raw_args: str, context: ToolContext) -> ToolResult:
+        """执行当前流程。"""
         args = self.parse_raw_input(raw_args, context)
         return self._grep(
             context,
@@ -141,6 +149,7 @@ class GrepTool(Tool):
         )
 
     def execute_input(self, input_data: dict[str, object], context: ToolContext) -> ToolResult:
+        """执行 `input`。"""
         pattern = str(input_data.get("pattern", "")).strip()
         if not pattern:
             raise ToolError("tool input 缺少 pattern")
@@ -183,6 +192,7 @@ class GrepTool(Tool):
         offset: int,
         multiline: bool,
     ) -> ToolResult:
+        """处理 `grep`。"""
         if output_mode not in {"content", "files_with_matches", "count"}:
             raise ToolError(f"不支持的 output_mode：{output_mode}")
         if offset < 0:

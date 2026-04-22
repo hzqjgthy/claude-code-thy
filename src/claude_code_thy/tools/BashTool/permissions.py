@@ -14,6 +14,7 @@ from .utils import is_cd_command, is_git_command, iter_shell_commands
 
 @dataclass(slots=True)
 class BashAssessment:
+    """表示 `BashAssessment`。"""
     command_segments: tuple[str, ...]
     checked_paths: tuple[str, ...]
     is_read_only: bool
@@ -21,6 +22,7 @@ class BashAssessment:
 
 
 def enforce_bash_permissions(context: ToolContext, command: str) -> BashAssessment:
+    """处理 `enforce_bash_permissions`。"""
     segments = tuple(iter_shell_commands(command))
     _check_compound_command_requirements(command, segments)
 
@@ -38,6 +40,7 @@ def enforce_bash_permissions(context: ToolContext, command: str) -> BashAssessme
 
 
 def _check_compound_command_requirements(command: str, segments: tuple[str, ...]) -> None:
+    """检查 `compound_command_requirements`。"""
     cd_segments = [segment for segment in segments if is_cd_command(segment)]
     if len(cd_segments) > 1:
         raise PermissionRequiredError(

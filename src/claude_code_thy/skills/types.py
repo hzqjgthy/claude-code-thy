@@ -11,6 +11,7 @@ PromptExecutionContext = Literal["inline", "fork"]
 
 @dataclass(slots=True)
 class PromptCommandSpec:
+    """统一描述本地 skill、MCP skill 和 MCP prompt 的可执行元数据。"""
     name: str
     description: str
     kind: PromptCommandKind
@@ -38,8 +39,10 @@ class PromptCommandSpec:
     metadata: dict[str, object] = field(default_factory=dict)
 
     def user_facing_name(self) -> str:
+        """返回展示给用户的名称，没有别名时退回内部命令名。"""
         return self.display_name or self.name
 
     @property
     def model_invocable(self) -> bool:
+        """判断该命令是否允许由模型在自动流程中主动触发。"""
         return self.kind != "mcp_prompt" and not self.disable_model_invocation

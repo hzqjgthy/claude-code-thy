@@ -18,6 +18,7 @@ from .prompt import DESCRIPTION, USAGE
 
 
 class WriteTool(Tool):
+    """实现 `Write` 工具。"""
     name = "write"
     description = DESCRIPTION
     usage = USAGE
@@ -31,9 +32,11 @@ class WriteTool(Tool):
     }
 
     def is_concurrency_safe(self) -> bool:
+        """返回是否满足 `is_concurrency_safe` 条件。"""
         return False
 
     def parse_raw_input(self, raw_args: str, context: ToolContext) -> dict[str, object]:
+        """解析 `raw_input`。"""
         _ = context
         parser = _make_parser("write", self.description)
         parser.add_argument("path", nargs="?")
@@ -55,10 +58,12 @@ class WriteTool(Tool):
         input_data: dict[str, object],
         context: ToolContext,
     ) -> PermissionResult:
+        """检查 `permissions`。"""
         file_path = str(input_data.get("file_path", "")).strip()
         return _path_permission_result(self.name, file_path, context, input_data)
 
     def prepare_permission_matcher(self, input_data: dict[str, object], context: ToolContext):
+        """处理 `prepare_permission_matcher`。"""
         file_path = str(input_data.get("file_path", "")).strip()
         path = _candidate_path(context, file_path, allow_missing=True)
         return lambda pattern: context.permission_context.match_path_pattern(path, pattern)
@@ -68,6 +73,7 @@ class WriteTool(Tool):
         original_input: dict[str, object],
         updated_input: dict[str, object],
     ) -> bool:
+        """处理 `inputs_equivalent`。"""
         return (
             str(original_input.get("file_path", "")).strip()
             == str(updated_input.get("file_path", "")).strip()
@@ -83,6 +89,7 @@ class WriteTool(Tool):
         original_input: dict[str, object] | None = None,
         user_modified: bool = False,
     ) -> ToolResult:
+        """渲染 `tool_use_rejected_message`。"""
         _ = original_input
         file_path = str(input_data.get("file_path", "")).strip()
         content = str(input_data.get("content", ""))
@@ -125,6 +132,7 @@ class WriteTool(Tool):
         )
 
     def execute(self, raw_args: str, context: ToolContext) -> ToolResult:
+        """执行当前流程。"""
         args = self.parse_raw_input(raw_args, context)
         return self._write(
             context,
@@ -133,6 +141,7 @@ class WriteTool(Tool):
         )
 
     def execute_input(self, input_data: dict[str, object], context: ToolContext) -> ToolResult:
+        """执行 `input`。"""
         file_path = str(input_data.get("file_path", "")).strip()
         if not file_path:
             raise ToolError("tool input 缺少 file_path")
@@ -140,6 +149,7 @@ class WriteTool(Tool):
         return self._write(context, file_path=file_path, content=content)
 
     def _write(self, context: ToolContext, *, file_path: str, content: str) -> ToolResult:
+        """写入 当前流程。"""
         path = _resolve_path(context, file_path, allow_missing=True, tool_name=self.name)
         context.discover_skills_for_paths([path])
         if path.exists() and path.is_dir():

@@ -11,6 +11,7 @@ ConnectionStatus = Literal["connected", "failed", "needs-auth", "pending", "disa
 
 @dataclass(slots=True)
 class McpServerConfig:
+    """保存 `McpServerConfig`。"""
     name: str
     scope: ConfigScope
     type: TransportType = "stdio"
@@ -27,6 +28,7 @@ class McpServerConfig:
 
     @property
     def signature(self) -> tuple[object, ...]:
+        """处理 `signature`。"""
         return (
             self.type,
             self.command,
@@ -42,6 +44,7 @@ class McpServerConfig:
 
 @dataclass(slots=True)
 class McpServerConnection:
+    """保存 `McpServerConnection`。"""
     name: str
     status: ConnectionStatus
     config: McpServerConfig
@@ -57,6 +60,7 @@ class McpServerConnection:
 
 @dataclass(slots=True)
 class McpToolDefinition:
+    """保存 `McpToolDefinition`。"""
     name: str
     description: str
     input_schema: dict[str, object]
@@ -65,6 +69,7 @@ class McpToolDefinition:
 
 @dataclass(slots=True)
 class McpPromptDefinition:
+    """保存 `McpPromptDefinition`。"""
     name: str
     description: str
     arguments: tuple[str, ...] = ()
@@ -72,6 +77,7 @@ class McpPromptDefinition:
 
 @dataclass(slots=True)
 class McpResourceDefinition:
+    """保存 `McpResourceDefinition`。"""
     uri: str
     name: str
     server: str

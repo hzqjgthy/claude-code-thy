@@ -10,11 +10,13 @@ TaskStatus = Literal["pending", "running", "completed", "failed", "killed", "exi
 
 
 def utc_now() -> str:
+    """返回 ISO 格式的 UTC 时间字符串。"""
     return datetime.now(timezone.utc).isoformat()
 
 
 @dataclass(slots=True)
 class TaskRecord:
+    """保存一个后台任务最核心的状态与元数据。"""
     task_id: str
     task_type: TaskType
     description: str
@@ -32,13 +34,16 @@ class TaskRecord:
 
     @property
     def is_terminal(self) -> bool:
+        """判断任务是否已经进入终态。"""
         return self.status in {"completed", "failed", "killed", "exited"}
 
     def to_dict(self) -> dict[str, object]:
+        """序列化成适合落盘的字典。"""
         return asdict(self)
 
     @classmethod
     def from_dict(cls, data: dict[str, object]) -> "TaskRecord":
+        """从持久化字典恢复基础任务记录。"""
         return cls(
             task_id=str(data.get("task_id", "")),
             task_type=str(data.get("task_type", "local_bash")),  # type: ignore[arg-type]
@@ -63,6 +68,7 @@ class TaskRecord:
 
 @dataclass(slots=True)
 class BackgroundTask(TaskRecord):
+    """在基础任务记录上补充本地命令执行相关字段。"""
     command: str = ""
     task_kind: str = "bash"
     sandbox_mode: str | None = None
@@ -71,6 +77,7 @@ class BackgroundTask(TaskRecord):
 
     @classmethod
     def from_dict(cls, data: dict[str, object]) -> "BackgroundTask":
+        """从持久化字典恢复完整后台任务对象。"""
         base = TaskRecord.from_dict(data)
         return cls(
             task_id=base.task_id,

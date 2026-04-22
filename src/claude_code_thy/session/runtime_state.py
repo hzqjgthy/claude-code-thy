@@ -7,6 +7,7 @@ from claude_code_thy.permissions import PermissionRequest
 
 
 def approved_permissions(session: SessionTranscript) -> list[str]:
+    """处理 `approved_permissions`。"""
     raw = session.runtime_state.get("approved_permissions", [])
     if not isinstance(raw, list):
         return []
@@ -14,6 +15,7 @@ def approved_permissions(session: SessionTranscript) -> list[str]:
 
 
 def add_approved_permission(session: SessionTranscript, approval_key: str) -> None:
+    """添加 `approved_permission`。"""
     existing = approved_permissions(session)
     if approval_key not in existing:
         existing.append(approval_key)
@@ -21,6 +23,7 @@ def add_approved_permission(session: SessionTranscript, approval_key: str) -> No
 
 
 def get_pending_permission(session: SessionTranscript) -> dict[str, Any] | None:
+    """返回 `pending_permission`。"""
     raw = session.runtime_state.get("pending_permission")
     if not isinstance(raw, dict):
         return None
@@ -39,6 +42,7 @@ def set_pending_permission(
     user_modified: bool | None = None,
     tool_use_id: str | None = None,
 ) -> dict[str, Any]:
+    """设置 `pending_permission`。"""
     payload: dict[str, Any] = {
         "request": request.to_dict(),
         "source_type": source_type,
@@ -59,10 +63,12 @@ def set_pending_permission(
 
 
 def clear_pending_permission(session: SessionTranscript) -> None:
+    """清理 `pending_permission`。"""
     session.runtime_state.pop("pending_permission", None)
 
 
 def pending_request(session: SessionTranscript) -> PermissionRequest | None:
+    """处理 `pending_request`。"""
     pending = get_pending_permission(session)
     if pending is None:
         return None

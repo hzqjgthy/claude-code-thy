@@ -6,9 +6,11 @@ from claude_code_thy.session.store import SessionStore
 
 
 class DummyProvider(Provider):
+    """实现 `Dummy` 提供方。"""
     name = "dummy"
 
     async def complete(self, session, tools):
+        """完成当前流程。"""
         _ = (session, tools)
         return ProviderResponse(
             display_text="ok",
@@ -18,6 +20,7 @@ class DummyProvider(Provider):
 
 
 def _create_completed_task(runtime: ConversationRuntime, session, *, task_type: str, description: str, output: str):
+    """创建 `completed_task`。"""
     manager = runtime.tool_runtime.services_for(session).task_manager
     record = manager.create_task(
         task_type=task_type,  # type: ignore[arg-type]
@@ -32,6 +35,7 @@ def _create_completed_task(runtime: ConversationRuntime, session, *, task_type: 
 
 
 def test_tasks_command_does_not_append_task_notification(tmp_path):
+    """测试 `tasks_command_does_not_append_task_notification` 场景。"""
     store = SessionStore(root_dir=tmp_path / "sessions")
     runtime = ConversationRuntime(provider=DummyProvider(), session_store=store)
     session = store.create(cwd=str(tmp_path), model="dummy", provider_name="dummy")
@@ -54,6 +58,7 @@ def test_tasks_command_does_not_append_task_notification(tmp_path):
 
 
 def test_status_command_still_appends_task_notification(tmp_path):
+    """测试 `status_command_still_appends_task_notification` 场景。"""
     store = SessionStore(root_dir=tmp_path / "sessions")
     runtime = ConversationRuntime(provider=DummyProvider(), session_store=store)
     session = store.create(cwd=str(tmp_path), model="dummy", provider_name="dummy")

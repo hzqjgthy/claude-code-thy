@@ -16,9 +16,11 @@ OPENAI_RESPONSES_STATE_KEY = "openai_responses"
 
 
 class OpenAIResponsesProvider(Provider):
+    """兼容 OpenAI Responses 风格接口，并负责本地会话到请求体的映射。"""
     name = "openai-responses-compatible"
 
     def __init__(self, config: AppConfig) -> None:
+        """保存当前 provider 需要的配置项。"""
         self.config = config
 
     async def complete(
@@ -26,6 +28,7 @@ class OpenAIResponsesProvider(Provider):
         session: SessionTranscript,
         tools: list[ToolSpec],
     ) -> ProviderResponse:
+        """在线程池中发起同步 HTTP 请求，避免阻塞事件循环。"""
         return await asyncio.to_thread(self._request, session, tools)
 
     def _request(
@@ -33,6 +36,7 @@ class OpenAIResponsesProvider(Provider):
         session: SessionTranscript,
         tools: list[ToolSpec],
     ) -> ProviderResponse:
+        """发送一次 Responses 请求，并把返回结果整理成统一 ProviderResponse。"""
         if self.config.openai_responses_enable_stream:
             raise ProviderError(
                 "当前 openai-responses provider 暂未启用流式聚合，请先将 OPENAI_RESPONSES_ENABLE_STREAM=false。"
@@ -88,6 +92,7 @@ class OpenAIResponsesProvider(Provider):
         *,
         force_full_history: bool = False,
     ) -> dict[str, object]:
+        """根据会话状态组装请求体，并决定走全量历史还是增量续写。"""
         payload = {
             "model": session.model or self.config.model,
             "stream": False,
@@ -109,6 +114,7 @@ class OpenAIResponsesProvider(Provider):
         return payload
 
     def _send_payload(self, payload: dict[str, object]) -> dict[str, object]:
+        """把请求体 POST 到 Responses 端点并解析 JSON 响应。"""
         request = Request(
             self._build_endpoint(self.config.openai_responses_base_url),
             data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
@@ -119,6 +125,7 @@ class OpenAIResponsesProvider(Provider):
             return json.loads(response.read().decode("utf-8"))
 
     def _previous_response_id_for_request(self, session: SessionTranscript) -> str | None:
+        """在启用该特性时，取出上一轮返回的 response id 供续写使用。"""
         if not self.config.openai_responses_use_previous_response_id:
             return None
         state = self._provider_state(session)
@@ -135,6 +142,7 @@ class OpenAIResponsesProvider(Provider):
         return response_id
 
     def _build_incremental_input(self, session: SessionTranscript) -> list[dict[str, object]]:
+        """只把上一轮响应之后新增的消息转换成增量输入。"""
         state = self._provider_state(session)
         message_count = state.get("last_response_message_count")
         if not isinstance(message_count, int):
@@ -146,6 +154,7 @@ class OpenAIResponsesProvider(Provider):
         return items
 
     def _provider_state(self, session: SessionTranscript) -> dict[str, object]:
+        """在会话运行态里取出本 provider 的私有缓存。"""
         state = session.runtime_state.get(OPENAI_RESPONSES_STATE_KEY)
         if isinstance(state, dict):
             return state
@@ -154,12 +163,14 @@ class OpenAIResponsesProvider(Provider):
         return fresh
 
     def _build_input(self, session: SessionTranscript) -> list[dict[str, object]]:
+        """把整个会话历史转换成 Responses API 的 input 数组。"""
         items: list[dict[str, object]] = []
         for message in session.messages:
             items.extend(self._message_to_input_items(message))
         return items
 
     def _message_to_input_items(self, message: ChatMessage) -> list[dict[str, object]]:
+        """按消息角色把本地消息映射成 Responses API 支持的输入块。"""
         if message.role == "user":
             return [self._message_item("user", message.text)]
         if message.role == "assistant":
@@ -169,6 +180,7 @@ class OpenAIResponsesProvider(Provider):
         return []
 
     def _assistant_items(self, message: ChatMessage) -> list[dict[str, object]]:
+        """把助手文本和工具调用历史转换成可续写的上下文片段。"""
         items: list[dict[str, object]] = []
         if message.text.strip():
             items.append(
@@ -196,6 +208,7 @@ class OpenAIResponsesProvider(Provider):
         return items
 
     def _tool_items(self, message: ChatMessage) -> list[dict[str, object]]:
+        """把 tool 消息优先转成结构化 function_call_output，无法结构化时退化成文本。"""
         metadata = message.metadata or {}
         blocks = message.content_blocks or []
         call_id = str(metadata.get("tool_use_id", "")).strip()
@@ -228,6 +241,7 @@ class OpenAIResponsesProvider(Provider):
         return [self._message_item("user", fallback)]
 
     def _tool_calls_from_message(self, message: ChatMessage) -> list[dict[str, object]]:
+        """从 assistant 消息的 metadata 或 content_blocks 中提取工具调用记录。"""
         metadata = message.metadata or {}
         metadata_calls = metadata.get("tool_calls")
         if isinstance(metadata_calls, list):
@@ -257,6 +271,7 @@ class OpenAIResponsesProvider(Provider):
         return calls
 
     def _extract_output_text(self, output: list[dict[str, object]]) -> str:
+        """从 Responses 的 output 列表中拼出可直接展示的文本。"""
         texts: list[str] = []
         for item in output:
             if not isinstance(item, dict):
@@ -274,6 +289,7 @@ class OpenAIResponsesProvider(Provider):
         return "\n".join(texts).strip()
 
     def _extract_tool_calls(self, output: list[dict[str, object]]) -> list[ToolCallRequest]:
+        """从 Responses 返回中提取待执行的 function_call。"""
         calls: list[ToolCallRequest] = []
         for item in output:
             if not isinstance(item, dict):
@@ -295,6 +311,7 @@ class OpenAIResponsesProvider(Provider):
         return calls
 
     def _tool_to_api(self, tool: ToolSpec) -> dict[str, object]:
+        """把内部工具定义转换成 Responses API 所需的 function schema。"""
         return {
             "type": "function",
             "name": tool.name,
@@ -304,6 +321,7 @@ class OpenAIResponsesProvider(Provider):
         }
 
     def _headers(self) -> dict[str, str]:
+        """构造请求头，并在配置存在时附带鉴权信息。"""
         headers = {
             "Content-Type": "application/json",
             "Accept": "application/json",
@@ -314,6 +332,7 @@ class OpenAIResponsesProvider(Provider):
         return headers
 
     def _build_endpoint(self, base_url: str) -> str:
+        """兼容传入根地址、`/v1` 地址和完整 `/responses` 地址。"""
         normalized = base_url.rstrip("/")
         if normalized.endswith("/responses"):
             return normalized
@@ -322,6 +341,7 @@ class OpenAIResponsesProvider(Provider):
         return f"{normalized}/v1/responses"
 
     def _message_item(self, role: str, text: str) -> dict[str, object]:
+        """创建最基础的文本消息输入块。"""
         return {
             "type": "message",
             "role": role,
@@ -329,6 +349,7 @@ class OpenAIResponsesProvider(Provider):
         }
 
     def _parse_json_object(self, raw: str) -> dict[str, object]:
+        """把工具参数字符串解析成 JSON object，并在格式错误时抛出 provider 错误。"""
         text = raw.strip()
         if not text:
             return {}
@@ -341,6 +362,7 @@ class OpenAIResponsesProvider(Provider):
         return parsed
 
     def _serialize_tool_output(self, value: object) -> str:
+        """把工具输出尽量稳定地转成字符串，供 function_call_output 使用。"""
         if isinstance(value, str):
             return value
         try:
@@ -349,6 +371,7 @@ class OpenAIResponsesProvider(Provider):
             return str(value)
 
     def _stringify_error(self, error: object) -> str:
+        """把服务端返回的错误结构整理成便于展示的文本。"""
         if isinstance(error, str):
             return error
         if isinstance(error, dict):
@@ -362,6 +385,7 @@ class OpenAIResponsesProvider(Provider):
         return str(error)
 
     def _http_error(self, error: HTTPError) -> ProviderError:
+        """尽量读取 HTTP 错误响应体，生成更完整的异常信息。"""
         try:
             message = error.read().decode("utf-8", errors="replace")
         except Exception:

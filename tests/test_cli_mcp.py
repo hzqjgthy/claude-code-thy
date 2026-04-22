@@ -15,6 +15,7 @@ runner = CliRunner()
 
 
 def test_mcp_show_config_subcommand_is_not_swallowed(tmp_path):
+    """测试 `mcp_show_config_subcommand_is_not_swallowed` 场景。"""
     root = tmp_path / "workspace"
     root.mkdir()
     (root / ".mcp.json").write_text(
@@ -33,11 +34,13 @@ def test_mcp_show_config_subcommand_is_not_swallowed(tmp_path):
 
 
 def test_print_mode_uses_extra_args_as_prompt(monkeypatch):
+    """测试 `print_mode_uses_extra_args_as_prompt` 场景。"""
     captured: dict[str, object] = {}
 
     monkeypatch.setattr(sys, "argv", ["claude-code-thy", "--print", "你好", "世界"])
 
     def fake_run_root_command(**kwargs):
+        """处理 `fake_run_root_command`。"""
         captured.update(kwargs)
 
     monkeypatch.setattr(cli_module, "_run_root_command", fake_run_root_command)
@@ -49,12 +52,14 @@ def test_print_mode_uses_extra_args_as_prompt(monkeypatch):
 
 
 def test_preprocess_root_invocation_does_not_swallow_mcp_command():
+    """测试 `preprocess_root_invocation_does_not_swallow_mcp_command` 场景。"""
     result = cli_module._preprocess_root_invocation(["mcp", "show-config"])
 
     assert result is None
 
 
 def test_preprocess_root_invocation_treats_mcp_as_prompt_in_print_mode():
+    """测试 `preprocess_root_invocation_treats_mcp_as_prompt_in_print_mode` 场景。"""
     result = cli_module._preprocess_root_invocation(["--print", "mcp", "show-config"])
 
     assert result is not None
@@ -62,10 +67,13 @@ def test_preprocess_root_invocation_treats_mcp_as_prompt_in_print_mode():
 
 
 def test_mcp_get_treats_unsupported_capabilities_as_optional(monkeypatch, tmp_path):
+    """测试 `mcp_get_treats_unsupported_capabilities_as_optional` 场景。"""
     server_name = "xiaohongshu-mcp"
 
     class FakeManager:
+        """管理 `Fake` 相关逻辑。"""
         async def get_connection(self, name: str, *, refresh: bool = False):
+            """返回 `connection`。"""
             assert name == server_name
             return McpServerConnection(
                 name=server_name,
@@ -83,6 +91,7 @@ def test_mcp_get_treats_unsupported_capabilities_as_optional(monkeypatch, tmp_pa
             )
 
         async def list_tools(self, name: str):
+            """列出 `tools`。"""
             assert name == server_name
             return [
                 McpToolDefinition(
@@ -93,10 +102,12 @@ def test_mcp_get_treats_unsupported_capabilities_as_optional(monkeypatch, tmp_pa
             ]
 
         async def list_prompts(self, name: str):
+            """列出 `prompts`。"""
             assert name == server_name
             raise McpRuntimeError("Method not found")
 
         async def list_resources(self, name: str):
+            """列出 `resources`。"""
             assert name == server_name
             raise McpRuntimeError("Method not found")
 

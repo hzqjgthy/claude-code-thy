@@ -4,6 +4,7 @@ from .utils import shell_split, strip_leading_env_assignments
 
 
 def extract_sed_expressions(command: str) -> list[str]:
+    """提取 `sed_expressions`。"""
     tokens = shell_split(command)
     if not tokens:
         return []
@@ -35,10 +36,12 @@ def extract_sed_expressions(command: str) -> list[str]:
 
 
 def is_print_command(command: str) -> bool:
+    """返回是否满足 `is_print_command` 条件。"""
     return bool(command) and bool(__import__("re").match(r"^(?:\d+|\d+,\d+)?p$", command))
 
 
 def is_line_printing_command(command: str, expressions: list[str]) -> bool:
+    """返回是否满足 `is_line_printing_command` 条件。"""
     tokens = shell_split(command)
     if not tokens:
         return False
@@ -66,6 +69,7 @@ def is_substitution_command(
     *,
     allow_file_writes: bool = False,
 ) -> bool:
+    """返回是否满足 `is_substitution_command` 条件。"""
     tokens = shell_split(command)
     if not tokens:
         return False
@@ -114,6 +118,7 @@ def sed_command_is_allowed_by_allowlist(
     *,
     allow_file_writes: bool = False,
 ) -> bool:
+    """处理 `sed_command_is_allowed_by_allowlist`。"""
     expressions = extract_sed_expressions(command)
     return is_line_printing_command(command, expressions) or is_substitution_command(
         command,

@@ -6,6 +6,7 @@ from claude_code_thy.settings import AppSettings
 
 
 def test_mcp_runtime_marks_needs_auth_and_exposes_auth_tool(tmp_path):
+    """测试 `mcp_runtime_marks_needs_auth_and_exposes_auth_tool` 场景。"""
     add_project_mcp_server(
         tmp_path,
         "demo",
@@ -21,6 +22,7 @@ def test_mcp_runtime_marks_needs_auth_and_exposes_auth_tool(tmp_path):
     manager = McpRuntimeManager(tmp_path, AppSettings())
 
     async def fake_open_connection(config):
+        """处理 `fake_open_connection`。"""
         raise RuntimeError("401 Unauthorized")
 
     manager._client._open_connection = fake_open_connection  # type: ignore[method-assign]

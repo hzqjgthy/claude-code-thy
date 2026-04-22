@@ -25,10 +25,12 @@ console = Console(stderr=True)
 
 
 def _is_unsupported_capability_error(error: McpRuntimeError) -> bool:
+    """判断错误是否只是服务端不支持某项可选 MCP 能力。"""
     return "method not found" in str(error).lower()
 
 
 def _load_optional_capability(loader):
+    """尝试加载一项可选能力，不支持时返回 `(None, True)`。"""
     try:
         return asyncio.run(loader()), False
     except McpRuntimeError as error:
@@ -38,6 +40,7 @@ def _load_optional_capability(loader):
 
 
 def _format_named_items(items, *, unsupported: bool) -> str:
+    """把 tools/prompts/resources 列表格式化成命令行可读文本。"""
     if unsupported:
         return "(unsupported)"
     if not items:
@@ -46,6 +49,7 @@ def _format_named_items(items, *, unsupported: bool) -> str:
 
 
 def _manager_for_cwd() -> tuple[Path, McpClientManager]:
+    """为当前工作目录创建一个临时 MCP manager。"""
     workspace_root = Path(os.getcwd()).resolve()
     settings = AppSettings.load_for_workspace(workspace_root)
     return workspace_root, McpClientManager(workspace_root, settings)
@@ -53,6 +57,7 @@ def _manager_for_cwd() -> tuple[Path, McpClientManager]:
 
 @mcp_app.command("list")
 def list_mcp(refresh: bool = typer.Option(True, "--refresh/--no-refresh", help="Try to connect before listing.")) -> None:
+    """列出当前工作区可见的所有 MCP server。"""
     workspace_root, manager = _manager_for_cwd()
     connections = asyncio.run(manager.refresh_all() if refresh else _snapshot_async(manager))
     table = Table(title=f"MCP Servers · {workspace_root}")
@@ -81,6 +86,7 @@ def get_mcp(
     name: str = typer.Argument(..., help="Server name."),
     refresh: bool = typer.Option(True, "--refresh/--no-refresh", help="Try to connect before reading details."),
 ) -> None:
+    """显示单个 MCP server 的详细信息。"""
     _, manager = _manager_for_cwd()
     connection = asyncio.run(manager.get_connection(name, refresh=refresh))
     if connection is None:
@@ -119,6 +125,7 @@ def add_mcp_json(
     name: str = typer.Argument(..., help="Server name."),
     config_json: str = typer.Argument(..., help="Raw JSON object."),
 ) -> None:
+    """直接以 JSON 对象形式向项目配置里添加一个 MCP server。"""
     workspace_root, _ = _manager_for_cwd()
     try:
         raw = json.loads(config_json)
@@ -140,6 +147,7 @@ def add_mcp(
     description: str = typer.Option("", "--description", help="Optional description."),
     args: list[str] = typer.Option(None, "--arg", help="stdio args, can be repeated."),
 ) -> None:
+    """用更友好的参数形式向项目配置里添加一个 MCP server。"""
     workspace_root, _ = _manager_for_cwd()
     raw: dict[str, object] = {"type": transport}
     if description.strip():
@@ -158,6 +166,7 @@ def add_mcp(
 def remove_mcp(
     name: str = typer.Argument(..., help="Server name."),
 ) -> None:
+    """从项目级 MCP 配置中删除一个 server。"""
     workspace_root, _ = _manager_for_cwd()
     path = remove_project_mcp_server(workspace_root, name)
     console.print(f"[green]已更新：{path}[/green]")
@@ -165,6 +174,7 @@ def remove_mcp(
 
 @mcp_app.command("show-config")
 def show_mcp_config() -> None:
+    """直接打印当前项目的 MCP 配置文件内容。"""
     workspace_root, _ = _manager_for_cwd()
     path = get_project_mcp_config_path(workspace_root)
     if not path.exists():
@@ -175,8 +185,10 @@ def show_mcp_config() -> None:
 
 @mcp_app.command("serve")
 def serve_mcp() -> None:
+    """以 stdio 方式启动项目内置的 MCP server。"""
     asyncio.run(serve_mcp_stdio(os.getcwd()))
 
 
 async def _snapshot_async(manager: McpClientManager):
+    """为无需刷新时提供一个统一的异步快照入口。"""
     return manager.snapshot()

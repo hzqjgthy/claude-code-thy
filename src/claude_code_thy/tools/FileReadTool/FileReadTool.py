@@ -25,6 +25,7 @@ from .readers import read_image, read_notebook, read_pdf, read_text_window
 
 
 class ReadTool(Tool):
+    """实现 `Read` 工具。"""
     name = "read"
     description = DESCRIPTION
     usage = USAGE
@@ -40,15 +41,19 @@ class ReadTool(Tool):
     }
 
     def is_read_only(self) -> bool:
+        """返回是否满足 `is_read_only` 条件。"""
         return True
 
     def is_concurrency_safe(self) -> bool:
+        """返回是否满足 `is_concurrency_safe` 条件。"""
         return True
 
     def search_behavior(self) -> dict[str, bool]:
+        """搜索 `behavior`。"""
         return {"is_search": False, "is_read": True}
 
     def parse_raw_input(self, raw_args: str, context: ToolContext) -> dict[str, object]:
+        """解析 `raw_input`。"""
         _ = context
         parser = _make_parser("read", self.description)
         parser.add_argument("path", nargs="?")
@@ -75,15 +80,18 @@ class ReadTool(Tool):
         input_data: dict[str, object],
         context: ToolContext,
     ) -> PermissionResult:
+        """检查 `permissions`。"""
         file_path = str(input_data.get("file_path", "")).strip()
         return _path_permission_result(self.name, file_path, context, input_data)
 
     def prepare_permission_matcher(self, input_data: dict[str, object], context: ToolContext):
+        """处理 `prepare_permission_matcher`。"""
         file_path = str(input_data.get("file_path", "")).strip()
         path = _candidate_path(context, file_path, allow_missing=True)
         return lambda pattern: context.permission_context.match_path_pattern(path, pattern)
 
     def execute(self, raw_args: str, context: ToolContext) -> ToolResult:
+        """执行当前流程。"""
         args = self.parse_raw_input(raw_args, context)
         return self._read(
             context,
@@ -94,6 +102,7 @@ class ReadTool(Tool):
         )
 
     def execute_input(self, input_data: dict[str, object], context: ToolContext) -> ToolResult:
+        """执行 `input`。"""
         file_path = str(input_data.get("file_path", "")).strip()
         if not file_path:
             raise ToolError("tool input 缺少 file_path")
@@ -119,6 +128,7 @@ class ReadTool(Tool):
         limit: int | None,
         pages: str | None,
     ) -> ToolResult:
+        """读取 当前流程。"""
         path = _resolve_path(context, file_path, tool_name=self.name)
         context.discover_skills_for_paths([path])
         if not path.exists():

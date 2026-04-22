@@ -10,6 +10,7 @@ _DOTENV_LOADED = False
 
 @dataclass(slots=True)
 class AppConfig:
+    """保存模型提供方、鉴权和请求参数等运行配置。"""
     provider: str
     model: str
     anthropic_api_key: str | None = None
@@ -22,9 +23,11 @@ class AppConfig:
     openai_responses_use_previous_response_id: bool = False
     api_timeout_ms: int = 600_000
     max_tokens: int = 4096
+    query_max_iterations: int = 1000
 
     @classmethod
     def from_env(cls) -> "AppConfig":
+        """从环境变量和 `.env` 文件组装应用配置。"""
         _load_dotenv_if_present()
 
         explicit_provider = os.environ.get("CLAUDE_CODE_THY_PROVIDER", "").strip()
@@ -41,6 +44,10 @@ class AppConfig:
         openai_use_previous_response_id = _bool_env("OPENAI_RESPONSES_USE_PREVIOUS_RESPONSE_ID", default=False)
         timeout_ms = _int_env("API_TIMEOUT_MS", default=600_000)
         max_tokens = _int_env("CLAUDE_CODE_THY_MAX_TOKENS", default=4096)
+        query_max_iterations = max(
+            1,
+            _int_env("CLAUDE_CODE_THY_QUERY_MAX_ITERATIONS", default=1000),
+        )
 
         provider = explicit_provider or _infer_provider(
             anthropic_api_key=api_key,
@@ -67,10 +74,12 @@ class AppConfig:
             openai_responses_use_previous_response_id=openai_use_previous_response_id,
             api_timeout_ms=timeout_ms,
             max_tokens=max_tokens,
+            query_max_iterations=query_max_iterations,
         )
 
 
 def _int_env(name: str, default: int) -> int:
+    """读取整数环境变量，格式不合法时回退到默认值。"""
     value = os.environ.get(name)
     if not value:
         return default
@@ -81,6 +90,7 @@ def _int_env(name: str, default: int) -> int:
 
 
 def _bool_env(name: str, default: bool) -> bool:
+    """读取布尔环境变量，兼容常见的真值写法。"""
     value = os.environ.get(name)
     if not value:
         return default
@@ -93,6 +103,7 @@ def _infer_provider(
     anthropic_auth_token: str | None,
     openai_responses_api_key: str | None,
 ) -> str:
+    """根据现有凭证自动推断默认 provider。"""
     if anthropic_api_key or anthropic_auth_token:
         return "anthropic-compatible"
     if openai_responses_api_key:
@@ -107,6 +118,7 @@ def _resolve_model(
     anthropic_model: str,
     openai_model: str,
 ) -> str:
+    """在全局模型和 provider 专属模型之间选出最终模型名。"""
     if global_model:
         return global_model
     if provider == "openai-responses-compatible":
@@ -115,6 +127,7 @@ def _resolve_model(
 
 
 def _load_dotenv_if_present() -> None:
+    """仅在首次读取配置时加载当前目录链上的 `.env` 文件。"""
     global _DOTENV_LOADED
     if _DOTENV_LOADED:
         return
@@ -142,6 +155,7 @@ def _load_dotenv_if_present() -> None:
 
 
 def _find_dotenv(start: Path) -> Path | None:
+    """从当前目录向上查找最近的 `.env` 文件。"""
     current = start.resolve()
     while True:
         candidate = current / ".env"

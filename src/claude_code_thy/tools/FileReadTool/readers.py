@@ -20,6 +20,7 @@ from claude_code_thy.tools.shared.common import (
 
 
 def read_image(*, tool_name: str, context: ToolContext, path: Path) -> ToolResult:
+    """读取 `image`。"""
     raw = path.read_bytes()
     mime_type = mimetypes.guess_type(path.name)[0] or "image/png"
     base64_data = base64.b64encode(raw).decode("ascii")
@@ -51,6 +52,7 @@ def read_image(*, tool_name: str, context: ToolContext, path: Path) -> ToolResul
 
 
 def read_notebook(*, tool_name: str, context: ToolContext, path: Path) -> ToolResult:
+    """读取 `notebook`。"""
     raw = path.read_bytes()
     content = _decode_text(raw)
     try:
@@ -92,6 +94,7 @@ def read_pdf(
     pages: str | None,
     inline_page_threshold: int,
 ) -> ToolResult:
+    """读取 `pdf`。"""
     page_count = _pdf_page_count(path)
     raw = path.read_bytes()
     if pages:
@@ -154,6 +157,7 @@ def read_text_window(
     offset: int,
     limit: int | None,
 ) -> dict[str, object]:
+    """读取 `text_window`。"""
     with path.open("rb") as handle:
         sample = handle.read(8192)
     if sample.startswith(b"\xff\xfe") or sample.startswith(b"\xfe\xff"):
@@ -180,6 +184,7 @@ def read_text_window(
 
 
 def read_full_text(path: Path) -> dict[str, object]:
+    """读取 `full_text`。"""
     snapshot = read_text_snapshot(path)
     return {
         "content": snapshot.content,

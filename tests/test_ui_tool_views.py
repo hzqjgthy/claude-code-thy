@@ -4,12 +4,14 @@ from claude_code_thy.ui.tool_views import build_tool_result_message
 
 
 def render_to_text(metadata: dict[str, object]) -> str:
+    """渲染 `to_text`。"""
     console = Console(force_terminal=False, width=120, record=True)
     console.print(build_tool_result_message(metadata))
     return console.export_text()
 
 
 def test_bash_tool_result_message_deduplicates_command_summary() -> None:
+    """测试 `bash_tool_result_message_deduplicates_command_summary` 场景。"""
     text = render_to_text(
         {
             "tool_name": "bash",
@@ -31,6 +33,7 @@ def test_bash_tool_result_message_deduplicates_command_summary() -> None:
 
 
 def test_read_tool_result_message_keeps_line_count_on_own_line() -> None:
+    """测试 `read_tool_result_message_keeps_line_count_on_own_line` 场景。"""
     text = render_to_text(
         {
             "tool_name": "read",

@@ -5,10 +5,12 @@ from datetime import datetime, timezone
 
 
 def utc_now() -> str:
+    """返回 ISO 格式的 UTC 时间字符串。"""
     return datetime.now(timezone.utc).isoformat()
 
 
 def build_session_title(text: str) -> str:
+    """把首条用户消息压缩成适合列表展示的会话标题。"""
     collapsed = " ".join(text.strip().split())
     if len(collapsed) <= 48:
         return collapsed
@@ -17,6 +19,7 @@ def build_session_title(text: str) -> str:
 
 @dataclass(slots=True)
 class ChatMessage:
+    """表示会话中的一条消息，兼容文本、工具块和附加元数据。"""
     role: str
     text: str
     content_blocks: list[dict[str, object]] | None = None
@@ -24,10 +27,12 @@ class ChatMessage:
     created_at: str = field(default_factory=utc_now)
 
     def to_dict(self) -> dict[str, object]:
+        """序列化为可写入 JSON 的字典结构。"""
         return asdict(self)
 
     @classmethod
     def from_dict(cls, data: dict[str, object]) -> "ChatMessage":
+        """从持久化字典恢复消息对象。"""
         return cls(
             role=str(data["role"]),
             text=str(data["text"]),
@@ -43,6 +48,7 @@ class ChatMessage:
 
 @dataclass(slots=True)
 class SessionTranscript:
+    """保存一个会话的完整上下文、消息历史和运行时状态。"""
     session_id: str
     cwd: str
     title: str | None = None
@@ -61,6 +67,7 @@ class SessionTranscript:
         content_blocks: list[dict[str, object]] | None = None,
         metadata: dict[str, object] | None = None,
     ) -> None:
+        """追加一条消息，并在首次用户发言时生成会话标题。"""
         self.messages.append(
             ChatMessage(
                 role=role,
@@ -74,10 +81,12 @@ class SessionTranscript:
         self.updated_at = utc_now()
 
     def clear_messages(self) -> None:
+        """清空消息历史，但保留会话本身的标识与配置。"""
         self.messages = []
         self.updated_at = utc_now()
 
     def to_dict(self) -> dict[str, object]:
+        """序列化整个会话，供本地存盘或后续恢复。"""
         return {
             "session_id": self.session_id,
             "cwd": self.cwd,
@@ -92,6 +101,7 @@ class SessionTranscript:
 
     @classmethod
     def from_dict(cls, data: dict[str, object]) -> "SessionTranscript":
+        """从 JSON 读取结果中恢复完整会话。"""
         raw_messages = data.get("messages", [])
         return cls(
             session_id=str(data["session_id"]),

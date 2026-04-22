@@ -48,12 +48,14 @@ BLOCKED_DEVICE_PATHS = {
 
 
 def _truncate(text: str, limit: int = MAX_TOOL_OUTPUT_CHARS) -> str:
+    """把过长输出裁剪到工具允许展示的最大长度。"""
     if len(text) <= limit:
         return text
     return f"{text[:limit]}\n... [truncated]"
 
 
 def _optional_stripped(value: object) -> str | None:
+    """把任意值转成去首尾空白的字符串，空串则返回 `None`。"""
     if value is None:
         return None
     text = str(value).strip()
@@ -61,6 +63,7 @@ def _optional_stripped(value: object) -> str | None:
 
 
 def _format_bytes(size: int) -> str:
+    """把字节数格式化成更易读的 KB/MB 文本。"""
     units = ["B", "KB", "MB", "GB"]
     value = float(size)
     for unit in units:
@@ -73,12 +76,14 @@ def _format_bytes(size: int) -> str:
 
 
 def _make_parser(prog: str, description: str) -> argparse.ArgumentParser:
+    """创建一个关闭默认 help 的轻量命令行解析器。"""
     parser = argparse.ArgumentParser(prog=prog, description=description, add_help=False)
     parser.add_argument("--help", action="store_true")
     return parser
 
 
 def _parse_args(parser: argparse.ArgumentParser, raw_args: str) -> argparse.Namespace:
+    """用统一错误文案解析工具字符串参数。"""
     try:
         tokens = shlex.split(raw_args)
     except ValueError as error:
@@ -93,6 +98,7 @@ def _parse_args(parser: argparse.ArgumentParser, raw_args: str) -> argparse.Name
 
 
 def _is_blocked_device_path(file_path: str) -> bool:
+    """判断路径是否指向禁止读取的设备文件或伪文件。"""
     if file_path in BLOCKED_DEVICE_PATHS:
         return True
     if file_path.startswith("/proc/") and (
@@ -103,6 +109,7 @@ def _is_blocked_device_path(file_path: str) -> bool:
 
 
 def _normalize_quotes(text: str) -> str:
+    """把中英文弯引号统一成普通引号，便于字符串匹配。"""
     return text.translate(
         str.maketrans(
             {
@@ -116,6 +123,7 @@ def _normalize_quotes(text: str) -> str:
 
 
 def _quote_variants(text: str) -> list[str]:
+    """生成一组不同引号风格的等价字符串候选。"""
     variants = {text}
     single_variants = ["'", "’"]
     double_variants = ['"', "“", "”"]
@@ -134,6 +142,7 @@ def _quote_variants(text: str) -> list[str]:
 
 
 def _find_actual_string(file_content: str, requested: str) -> str | None:
+    """在文件内容里寻找与请求文本语义相同但引号风格不同的字符串。"""
     if requested in file_content:
         return requested
     for variant in _quote_variants(requested):
@@ -148,6 +157,7 @@ def _find_actual_string(file_content: str, requested: str) -> str | None:
 
 
 def _preserve_quote_style(old_string: str, actual_old_string: str, new_string: str) -> str:
+    """在替换文本时尽量沿用原文件已有的引号风格。"""
     updated = new_string
     if "'" in old_string and "’" in actual_old_string:
         updated = updated.replace("'", "’")
@@ -163,6 +173,7 @@ def _preserve_quote_style(old_string: str, actual_old_string: str, new_string: s
 
 
 def _decode_text(raw: bytes) -> str:
+    """尽量按 UTF-16/UTF-8 解码文本字节，并统一换行符。"""
     if raw.startswith(b"\xff\xfe"):
         return raw[2:].decode("utf-16le", errors="replace").replace("\r\n", "\n")
     if raw.startswith(b"\xfe\xff"):
@@ -171,6 +182,7 @@ def _decode_text(raw: bytes) -> str:
 
 
 def _is_binary_bytes(raw: bytes) -> bool:
+    """用偏宽松的启发式判断内容是否更像二进制文件。"""
     if raw.startswith(b"\xff\xfe") or raw.startswith(b"\xfe\xff") or raw.startswith(b"\xef\xbb\xbf"):
         return False
     if b"\x00" in raw:
@@ -189,10 +201,12 @@ def _is_binary_bytes(raw: bytes) -> bool:
 
 
 def _file_timestamp(path: Path) -> int:
+    """返回毫秒级文件修改时间，用于读写一致性校验。"""
     return int(path.stat().st_mtime_ns // 1_000_000)
 
 
 def _is_inside(path: Path, root: Path) -> bool:
+    """判断一个路径是否位于指定根目录之内。"""
     try:
         path.relative_to(root)
         return True
@@ -201,6 +215,7 @@ def _is_inside(path: Path, root: Path) -> bool:
 
 
 def _display_path(path: Path, cwd: Path) -> str:
+    """优先用相对路径展示文件，超出工作区时再退回绝对路径。"""
     return str(path.relative_to(cwd)) if _is_inside(path, cwd) else str(path)
 
 
@@ -211,6 +226,7 @@ def _resolve_path(
     allow_missing: bool = False,
     tool_name: str = "*",
 ) -> Path:
+    """解析并校验路径，同时执行权限检查。"""
     resolved = _candidate_path(context, raw_path, allow_missing=allow_missing)
     context.permission_context.require_path(tool_name, resolved)
     return resolved
@@ -222,6 +238,7 @@ def _candidate_path(
     *,
     allow_missing: bool = False,
 ) -> Path:
+    """把用户输入路径展开为绝对路径，必要时允许目标尚不存在。"""
     normalized = os.path.expanduser(raw_path.strip())
     if not normalized:
         raise ToolError("缺少文件路径")
@@ -244,6 +261,7 @@ def _path_permission_result(
     *,
     allow_missing: bool = True,
 ) -> PermissionResult:
+    """把路径权限检查包装成工具系统统一的 PermissionResult。"""
     path = _candidate_path(context, raw_path, allow_missing=allow_missing)
     try:
         context.permission_context.require_path(tool_name, path)
@@ -255,6 +273,7 @@ def _path_permission_result(
 
 
 def _looks_ignored(relative_path: str, ignore_patterns: tuple[str, ...]) -> bool:
+    """判断某个相对路径是否命中忽略规则或版本控制目录。"""
     posix_path = relative_path.replace(os.sep, "/")
     parts = set(Path(posix_path).parts)
     if VCS_DIRECTORIES & parts:
@@ -270,6 +289,7 @@ def _looks_ignored(relative_path: str, ignore_patterns: tuple[str, ...]) -> bool
 
 
 def _suggest_path(context: ToolContext, raw_path: str) -> str | None:
+    """在路径不存在时，从工作区里猜一个最可能的候选路径。"""
     target = Path(raw_path)
     basename = target.name.lower()
     stem = target.stem.lower()
@@ -302,6 +322,7 @@ def _suggest_path(context: ToolContext, raw_path: str) -> str | None:
 
 
 def _missing_path_error(context: ToolContext, raw_path: str, kind: str = "File") -> ToolError:
+    """生成包含建议路径的“不存在”错误信息。"""
     suggestion = _suggest_path(context, raw_path)
     message = f"{kind} does not exist. Current working directory: {context.cwd}."
     if suggestion:
@@ -319,6 +340,7 @@ def _remember_read(
     limit: int | None = None,
     file_kind: str = "text",
 ) -> None:
+    """把最近一次文件读取结果记到会话状态里。"""
     context.read_file_state[str(path)] = FileReadState(
         content=content,
         timestamp=timestamp,
@@ -329,6 +351,7 @@ def _remember_read(
 
 
 def _ensure_full_read_before_write(context: ToolContext, path: Path, current_content: str) -> FileReadState:
+    """写入前确认文件曾被完整读取且期间没有被外部修改。"""
     state = context.read_file_state.get(str(path))
     if state is None or state.is_partial_view:
         raise ToolError("File has not been read yet. Read it first before writing to it.")
@@ -343,6 +366,7 @@ def _ensure_full_read_before_write(context: ToolContext, path: Path, current_con
 
 
 def _build_diff(file_path: str, old: str, new: str) -> dict[str, object]:
+    """生成统一 diff 文本、预览和结构化补丁信息。"""
     diff_lines = list(
         difflib.unified_diff(
             old.splitlines(),
@@ -366,6 +390,7 @@ def _build_diff(file_path: str, old: str, new: str) -> dict[str, object]:
 
 
 def _structured_patch_from_diff_lines(diff_lines: list[str]) -> list[dict[str, object]]:
+    """把 unified diff 解析成更适合前端消费的 hunk 结构。"""
     hunks: list[dict[str, object]] = []
     current: dict[str, object] | None = None
     hunk_re = re.compile(r"^@@ -(\d+),?(\d*) \+(\d+),?(\d*) @@")
@@ -392,6 +417,7 @@ def _structured_patch_from_diff_lines(diff_lines: list[str]) -> list[dict[str, o
 
 
 def _apply_head_limit[T](items: list[T], limit: int | None, offset: int = 0) -> tuple[list[T], int | None]:
+    """对结果列表应用 head limit，并告知是否发生截断。"""
     if limit == 0:
         return items[offset:], None
 
@@ -402,6 +428,7 @@ def _apply_head_limit[T](items: list[T], limit: int | None, offset: int = 0) -> 
 
 
 def _format_limit_info(limit: int | None, offset: int | None) -> str:
+    """把 limit 和 offset 拼成适合展示的附加说明。"""
     parts: list[str] = []
     if limit is not None:
         parts.append(f"limit: {limit}")
@@ -411,12 +438,14 @@ def _format_limit_info(limit: int | None, offset: int | None) -> str:
 
 
 def _tool_results_dir(context: ToolContext) -> Path:
+    """返回当前工作区的工具结果落盘目录。"""
     directory = context.cwd / ".claude-code-thy" / "tool-results"
     directory.mkdir(parents=True, exist_ok=True)
     return directory
 
 
 def _persist_output(context: ToolContext, prefix: str, content: str) -> Path:
+    """把较长输出写入文件，并返回保存路径。"""
     from uuid import uuid4
 
     path = _tool_results_dir(context) / f"{prefix}-{uuid4().hex[:8]}.txt"
@@ -425,6 +454,7 @@ def _persist_output(context: ToolContext, prefix: str, content: str) -> Path:
 
 
 def _parse_page_range(pages: str) -> tuple[int, int]:
+    """解析 PDF 页码范围，并限制单次读取页数。"""
     text = pages.strip()
     if not text:
         raise ToolError("pages 不能为空")
@@ -444,6 +474,7 @@ def _parse_page_range(pages: str) -> tuple[int, int]:
 
 
 def _pdf_page_count(path: Path) -> int | None:
+    """调用 `pdfinfo` 获取 PDF 页数，工具缺失时返回 `None`。"""
     if not shutil.which("pdfinfo"):
         return None
     completed = subprocess.run(
@@ -461,6 +492,7 @@ def _pdf_page_count(path: Path) -> int | None:
 
 
 def _extract_pdf_page_images(path: Path, first_page: int, last_page: int) -> list[dict[str, object]]:
+    """借助 `pdftoppm` 把 PDF 指定页转换成 base64 图片块。"""
     if not shutil.which("pdftoppm"):
         raise ToolError(
             "读取 PDF pages 需要 `pdftoppm`，请先安装 poppler，例如 macOS 下执行 `brew install poppler`。"

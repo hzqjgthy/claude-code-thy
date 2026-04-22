@@ -9,17 +9,21 @@ from claude_code_thy.settings import SkillsSettings
 
 @dataclass(slots=True)
 class SkillDiscoveryResult:
+    """记录一次路径扫描命中了哪些 skill 目录和触发规则。"""
     discovered_dirs: tuple[str, ...]
     matched_triggers: tuple[str, ...]
 
 
 class SkillManager:
+    """负责根据路径和配置规则发现本地 skill 目录。"""
     def __init__(self, workspace_root: Path, settings: SkillsSettings) -> None:
+        """保存工作区根目录、skills 设置和已发现目录缓存。"""
         self.workspace_root = workspace_root
         self.settings = settings
         self._known_dirs: set[str] = set()
 
     def discover_for_paths(self, paths: list[Path]) -> SkillDiscoveryResult:
+        """根据访问过的路径、父目录和触发规则补充可用 skill。"""
         if not self.settings.enabled:
             return SkillDiscoveryResult(discovered_dirs=(), matched_triggers=())
 
@@ -51,9 +55,11 @@ class SkillManager:
         )
 
     def list_known_skills(self) -> tuple[str, ...]:
+        """返回本次进程生命周期内已经发现过的 skill 目录。"""
         return tuple(sorted(self._known_dirs))
 
     def _relative_path(self, path: Path) -> str:
+        """把绝对路径尽量转换成相对工作区的路径字符串。"""
         try:
             return str(path.relative_to(self.workspace_root))
         except ValueError:

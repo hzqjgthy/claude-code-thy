@@ -10,20 +10,26 @@ from claude_code_thy.tools.base import ToolSpec
 
 
 class _FakeHttpResponse:
+    """保存 `_FakeHttpResponse`。"""
     def __init__(self, body: dict[str, object]) -> None:
+        """初始化实例状态。"""
         self._body = json.dumps(body, ensure_ascii=False).encode("utf-8")
 
     def __enter__(self):
+        """进入上下文。"""
         return self
 
     def __exit__(self, exc_type, exc, tb):
+        """退出上下文。"""
         return False
 
     def read(self) -> bytes:
+        """读取 当前流程。"""
         return self._body
 
 
 def test_openai_responses_provider_builds_tools_and_parses_function_call(monkeypatch):
+    """测试 `openai_responses_provider_builds_tools_and_parses_function_call` 场景。"""
     captured: dict[str, object] = {}
     config = AppConfig(
         provider="openai-responses-compatible",
@@ -49,6 +55,7 @@ def test_openai_responses_provider_builds_tools_and_parses_function_call(monkeyp
     ]
 
     def fake_urlopen(request, timeout):
+        """处理 `fake_urlopen`。"""
         captured["url"] = request.full_url
         captured["timeout"] = timeout
         captured["headers"] = dict(request.header_items())
@@ -87,6 +94,7 @@ def test_openai_responses_provider_builds_tools_and_parses_function_call(monkeyp
 
 
 def test_openai_responses_provider_maps_tool_history_back_to_input():
+    """测试 `openai_responses_provider_maps_tool_history_back_to_input` 场景。"""
     config = AppConfig(
         provider="openai-responses-compatible",
         model="gpt-5.4",
@@ -136,6 +144,7 @@ def test_openai_responses_provider_maps_tool_history_back_to_input():
 
 
 def test_openai_responses_provider_rewrites_assistant_text_history_as_user_context():
+    """测试 `openai_responses_provider_rewrites_assistant_text_history_as_user_context` 场景。"""
     config = AppConfig(
         provider="openai-responses-compatible",
         model="gpt-5.4",
@@ -157,6 +166,7 @@ def test_openai_responses_provider_rewrites_assistant_text_history_as_user_conte
 
 
 def test_openai_responses_provider_stores_response_id_state(monkeypatch):
+    """测试 `openai_responses_provider_stores_response_id_state` 场景。"""
     config = AppConfig(
         provider="openai-responses-compatible",
         model="gpt-5.4",
@@ -168,6 +178,7 @@ def test_openai_responses_provider_stores_response_id_state(monkeypatch):
     session.add_message("user", "你好", content_blocks=[{"type": "text", "text": "你好"}])
 
     def fake_urlopen(request, timeout):
+        """处理 `fake_urlopen`。"""
         _ = (request, timeout)
         return _FakeHttpResponse(
             {
@@ -193,6 +204,7 @@ def test_openai_responses_provider_stores_response_id_state(monkeypatch):
 
 
 def test_openai_responses_provider_uses_previous_response_id_for_incremental_turns(monkeypatch):
+    """测试 `openai_responses_provider_uses_previous_response_id_for_incremental_turns` 场景。"""
     captured: dict[str, object] = {}
     config = AppConfig(
         provider="openai-responses-compatible",
@@ -212,6 +224,7 @@ def test_openai_responses_provider_uses_previous_response_id_for_incremental_tur
     session.add_message("user", "你是什么模型", content_blocks=[{"type": "text", "text": "你是什么模型"}])
 
     def fake_urlopen(request, timeout):
+        """处理 `fake_urlopen`。"""
         captured["payload"] = json.loads(request.data.decode("utf-8"))
         _ = timeout
         return _FakeHttpResponse(
@@ -243,6 +256,7 @@ def test_openai_responses_provider_uses_previous_response_id_for_incremental_tur
 
 
 def test_openai_responses_provider_skips_previous_response_id_when_disabled(monkeypatch):
+    """测试 `openai_responses_provider_skips_previous_response_id_when_disabled` 场景。"""
     captured: dict[str, object] = {}
     config = AppConfig(
         provider="openai-responses-compatible",
@@ -262,6 +276,7 @@ def test_openai_responses_provider_skips_previous_response_id_when_disabled(monk
     session.add_message("user", "你是什么模型", content_blocks=[{"type": "text", "text": "你是什么模型"}])
 
     def fake_urlopen(request, timeout):
+        """处理 `fake_urlopen`。"""
         captured["payload"] = json.loads(request.data.decode("utf-8"))
         _ = timeout
         return _FakeHttpResponse(
@@ -291,6 +306,7 @@ def test_openai_responses_provider_skips_previous_response_id_when_disabled(monk
 
 
 def test_openai_responses_provider_falls_back_when_previous_response_id_fails(monkeypatch):
+    """测试 `openai_responses_provider_falls_back_when_previous_response_id_fails` 场景。"""
     captured_payloads: list[dict[str, object]] = []
     config = AppConfig(
         provider="openai-responses-compatible",
@@ -310,6 +326,7 @@ def test_openai_responses_provider_falls_back_when_previous_response_id_fails(mo
     session.add_message("user", "你是什么模型", content_blocks=[{"type": "text", "text": "你是什么模型"}])
 
     def fake_urlopen(request, timeout):
+        """处理 `fake_urlopen`。"""
         payload = json.loads(request.data.decode("utf-8"))
         captured_payloads.append(payload)
         _ = timeout
@@ -350,6 +367,7 @@ def test_openai_responses_provider_falls_back_when_previous_response_id_fails(mo
 
 
 def test_openai_responses_provider_rejects_non_object_tool_arguments():
+    """测试 `openai_responses_provider_rejects_non_object_tool_arguments` 场景。"""
     config = AppConfig(
         provider="openai-responses-compatible",
         model="gpt-5.4",
@@ -366,6 +384,7 @@ def test_openai_responses_provider_rejects_non_object_tool_arguments():
 
 
 def test_openai_responses_provider_preserves_structured_edit_schema():
+    """测试 `openai_responses_provider_preserves_structured_edit_schema` 场景。"""
     config = AppConfig(
         provider="openai-responses-compatible",
         model="gpt-5.4",
@@ -412,6 +431,7 @@ def test_openai_responses_provider_preserves_structured_edit_schema():
 
 
 def test_openai_responses_provider_rejects_stream_mode_for_now():
+    """测试 `openai_responses_provider_rejects_stream_mode_for_now` 场景。"""
     config = AppConfig(
         provider="openai-responses-compatible",
         model="gpt-5.4",
@@ -430,6 +450,7 @@ def test_openai_responses_provider_rejects_stream_mode_for_now():
 
 
 def test_openai_responses_provider_ignores_null_error_field(monkeypatch):
+    """测试 `openai_responses_provider_ignores_null_error_field` 场景。"""
     config = AppConfig(
         provider="openai-responses-compatible",
         model="gpt-5.4",
@@ -441,6 +462,7 @@ def test_openai_responses_provider_ignores_null_error_field(monkeypatch):
     session.add_message("user", "你好", content_blocks=[{"type": "text", "text": "你好"}])
 
     def fake_urlopen(request, timeout):
+        """处理 `fake_urlopen`。"""
         _ = (request, timeout)
         return _FakeHttpResponse(
             {

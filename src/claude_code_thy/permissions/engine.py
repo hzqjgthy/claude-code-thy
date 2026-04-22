@@ -9,6 +9,7 @@ from claude_code_thy.settings import AppSettings, ToolPermissionRule
 
 @dataclass(slots=True)
 class PermissionDecision:
+    """表示 `PermissionDecision`。"""
     allowed: bool
     requires_confirmation: bool = False
     reason: str = ""
@@ -16,11 +17,14 @@ class PermissionDecision:
 
 
 class PermissionEngine:
+    """协调 `PermissionEngine`。"""
     def __init__(self, workspace_root: Path, settings: AppSettings) -> None:
+        """初始化实例状态。"""
         self.workspace_root = workspace_root.resolve()
         self.settings = settings
 
     def check_path(self, tool_name: str, path: Path) -> PermissionDecision:
+        """检查 `path`。"""
         normalized_path = str(path.resolve())
         matched = self._match_rule(tool_name, normalized_path, target="path")
         if matched is not None:
@@ -37,12 +41,14 @@ class PermissionEngine:
         return PermissionDecision(allowed=True)
 
     def check_command(self, tool_name: str, command: str) -> PermissionDecision:
+        """检查 `command`。"""
         matched = self._match_rule(tool_name, command, target="command")
         if matched is not None:
             return self._rule_to_decision(matched, command)
         return PermissionDecision(allowed=True)
 
     def _match_rule(self, tool_name: str, value: str, *, target: str) -> ToolPermissionRule | None:
+        """匹配 `rule`。"""
         for rule in self.settings.permission_rules:
             if rule.target not in {target, "*"}:
                 continue
@@ -53,6 +59,7 @@ class PermissionEngine:
         return None
 
     def _rule_to_decision(self, rule: ToolPermissionRule, value: str) -> PermissionDecision:
+        """处理 `rule_to_decision`。"""
         effect = rule.effect.lower()
         if effect == "allow":
             return PermissionDecision(

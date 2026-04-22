@@ -8,10 +8,12 @@ from claude_code_thy.tools import ToolError, ToolRuntime, build_builtin_tools
 
 
 def build_runtime() -> ToolRuntime:
+    """构建 `runtime`。"""
     return ToolRuntime(build_builtin_tools())
 
 
 def test_write_and_read_tool_round_trip(tmp_path):
+    """测试 `write_and_read_tool_round_trip` 场景。"""
     runtime = build_runtime()
     session = SessionTranscript(session_id="test", cwd=str(tmp_path))
 
@@ -28,6 +30,7 @@ def test_write_and_read_tool_round_trip(tmp_path):
 
 
 def test_glob_tool_lists_matching_files(tmp_path):
+    """测试 `glob_tool_lists_matching_files` 场景。"""
     runtime = build_runtime()
     session = SessionTranscript(session_id="test", cwd=str(tmp_path))
     (tmp_path / "a.py").write_text("print('a')", encoding="utf-8")
@@ -40,6 +43,7 @@ def test_glob_tool_lists_matching_files(tmp_path):
 
 
 def test_grep_tool_finds_matches(tmp_path):
+    """测试 `grep_tool_finds_matches` 场景。"""
     runtime = build_runtime()
     session = SessionTranscript(session_id="test", cwd=str(tmp_path))
     (tmp_path / "app.py").write_text("class SessionTranscript:\n    pass\n", encoding="utf-8")
@@ -55,6 +59,7 @@ def test_grep_tool_finds_matches(tmp_path):
 
 
 def test_read_tool_execute_input_supports_offset_and_limit(tmp_path):
+    """测试 `read_tool_execute_input_supports_offset_and_limit` 场景。"""
     runtime = build_runtime()
     session = SessionTranscript(session_id="test", cwd=str(tmp_path))
     (tmp_path / "sample.txt").write_text("a\nb\nc\nd\n", encoding="utf-8")
@@ -71,6 +76,7 @@ def test_read_tool_execute_input_supports_offset_and_limit(tmp_path):
 
 
 def test_write_tool_preserves_crlf_newlines(tmp_path):
+    """测试 `write_tool_preserves_crlf_newlines` 场景。"""
     runtime = build_runtime()
     session = SessionTranscript(session_id="test", cwd=str(tmp_path))
     path = tmp_path / "notes.txt"
@@ -89,6 +95,7 @@ def test_write_tool_preserves_crlf_newlines(tmp_path):
 
 
 def test_edit_tool_replaces_single_match(tmp_path):
+    """测试 `edit_tool_replaces_single_match` 场景。"""
     runtime = build_runtime()
     session = SessionTranscript(session_id="test", cwd=str(tmp_path))
     (tmp_path / "app.py").write_text("value = 'old'\n", encoding="utf-8")
@@ -111,6 +118,7 @@ def test_edit_tool_replaces_single_match(tmp_path):
 
 
 def test_edit_tool_preserves_utf16_bom(tmp_path):
+    """测试 `edit_tool_preserves_utf16_bom` 场景。"""
     runtime = build_runtime()
     session = SessionTranscript(session_id="test", cwd=str(tmp_path))
     path = tmp_path / "utf16.txt"
@@ -133,6 +141,7 @@ def test_edit_tool_preserves_utf16_bom(tmp_path):
 
 
 def test_edit_tool_supports_structured_edits(tmp_path):
+    """测试 `edit_tool_supports_structured_edits` 场景。"""
     runtime = build_runtime()
     session = SessionTranscript(session_id="test", cwd=str(tmp_path))
     path = tmp_path / "multi.txt"
@@ -157,6 +166,7 @@ def test_edit_tool_supports_structured_edits(tmp_path):
 
 
 def test_edit_tool_schema_defines_structured_edits_items():
+    """测试 `edit_tool_schema_defines_structured_edits_items` 场景。"""
     runtime = build_runtime()
     specs = runtime.list_tool_specs()
     edit_spec = next(spec for spec in specs if spec.name == "edit")
@@ -174,6 +184,7 @@ def test_edit_tool_schema_defines_structured_edits_items():
 
 
 def test_edit_tool_schema_validation_requires_old_new_or_edits(tmp_path):
+    """测试 `edit_tool_schema_validation_requires_old_new_or_edits` 场景。"""
     runtime = build_runtime()
     session = SessionTranscript(session_id="test", cwd=str(tmp_path))
 
@@ -193,6 +204,7 @@ def test_edit_tool_schema_validation_requires_old_new_or_edits(tmp_path):
 
 
 def test_write_tool_returns_git_diff_when_in_repo(tmp_path):
+    """测试 `write_tool_returns_git_diff_when_in_repo` 场景。"""
     import subprocess
 
     subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
@@ -213,6 +225,7 @@ def test_write_tool_returns_git_diff_when_in_repo(tmp_path):
 
 
 def test_read_tool_supports_utf16_text(tmp_path):
+    """测试 `read_tool_supports_utf16_text` 场景。"""
     runtime = build_runtime()
     session = SessionTranscript(session_id="test", cwd=str(tmp_path))
     path = tmp_path / "utf16-read.txt"
@@ -225,6 +238,7 @@ def test_read_tool_supports_utf16_text(tmp_path):
 
 
 def test_read_tool_supports_utf8_non_ascii_text(tmp_path):
+    """测试 `read_tool_supports_utf8_non_ascii_text` 场景。"""
     runtime = build_runtime()
     session = SessionTranscript(session_id="test", cwd=str(tmp_path))
     path = tmp_path / "README.md"
@@ -237,6 +251,7 @@ def test_read_tool_supports_utf8_non_ascii_text(tmp_path):
 
 
 def test_render_rejected_edit_result_contains_diff(tmp_path):
+    """测试 `render_rejected_edit_result_contains_diff` 场景。"""
     runtime = build_runtime()
     session = SessionTranscript(session_id="test", cwd=str(tmp_path))
     path = tmp_path / "edit.txt"
@@ -260,6 +275,7 @@ def test_render_rejected_edit_result_contains_diff(tmp_path):
 
 
 def test_dynamic_mcp_tools_remain_visible_across_repeated_async_reads(tmp_path):
+    """测试 `dynamic_mcp_tools_remain_visible_across_repeated_async_reads` 场景。"""
     add_project_mcp_server(
         tmp_path,
         "xiaohongshu-mcp",
@@ -270,48 +286,64 @@ def test_dynamic_mcp_tools_remain_visible_across_repeated_async_reads(tmp_path):
     manager = runtime.services_for(session).mcp_manager
 
     class DummyStack:
+        """表示 `DummyStack`。"""
         async def aclose(self) -> None:
+            """处理 `aclose`。"""
             return None
 
     class DummyTool:
+        """实现 `Dummy` 工具。"""
         def __init__(self, name: str) -> None:
+            """初始化实例状态。"""
             self.name = name
             self.description = f"tool:{name}"
             self.inputSchema = {"type": "object", "properties": {}}
             self.annotations = {"readOnlyHint": True}
 
     class DummyToolListResult:
+        """保存 `DummyToolListResult`。"""
         def __init__(self) -> None:
+            """初始化实例状态。"""
             self.tools = [DummyTool("check_login_status")]
 
     class DummyPromptListResult:
+        """保存 `DummyPromptListResult`。"""
         def __init__(self) -> None:
+            """初始化实例状态。"""
             self.prompts = []
 
     class DummyResourceListResult:
+        """保存 `DummyResourceListResult`。"""
         def __init__(self) -> None:
+            """初始化实例状态。"""
             self.resources = []
 
     class DummySession:
+        """保存 `DummySession`。"""
         def __init__(self) -> None:
+            """初始化实例状态。"""
             self._loop_id = id(asyncio.get_running_loop())
 
         async def list_tools(self):
+            """列出 `tools`。"""
             if id(asyncio.get_running_loop()) != self._loop_id:
                 raise RuntimeError("session used from different event loop")
             return DummyToolListResult()
 
         async def list_prompts(self):
+            """列出 `prompts`。"""
             if id(asyncio.get_running_loop()) != self._loop_id:
                 raise RuntimeError("session used from different event loop")
             return DummyPromptListResult()
 
         async def list_resources(self):
+            """列出 `resources`。"""
             if id(asyncio.get_running_loop()) != self._loop_id:
                 raise RuntimeError("session used from different event loop")
             return DummyResourceListResult()
 
     async def fake_open_connection(config):
+        """处理 `fake_open_connection`。"""
         return _ManagedConnection(
             config=config,
             stack=DummyStack(),
@@ -321,6 +353,7 @@ def test_dynamic_mcp_tools_remain_visible_across_repeated_async_reads(tmp_path):
     manager._open_connection = fake_open_connection  # type: ignore[method-assign]
 
     async def run_twice():
+        """运行 `twice`。"""
         first = [
             tool.name
             for tool in runtime.list_tools_for_session(session)
@@ -340,21 +373,26 @@ def test_dynamic_mcp_tools_remain_visible_across_repeated_async_reads(tmp_path):
 
 
 def test_dynamic_mcp_tools_refresh_once_then_reuse_cache(tmp_path):
+    """测试 `dynamic_mcp_tools_refresh_once_then_reuse_cache` 场景。"""
     runtime = build_runtime()
     session = SessionTranscript(session_id="test", cwd=str(tmp_path))
     services = runtime.services_for(session)
 
     class DummyMgr:
+        """表示 `DummyMgr`。"""
         def __init__(self) -> None:
+            """初始化实例状态。"""
             self.refresh_calls = 0
             self.loaded = False
 
         async def refresh_all(self):
+            """刷新 `all`。"""
             self.refresh_calls += 1
             self.loaded = True
             return []
 
         def cached_tools(self):
+            """处理 `cached_tools`。"""
             if not self.loaded:
                 return {}
             return {
@@ -369,9 +407,11 @@ def test_dynamic_mcp_tools_refresh_once_then_reuse_cache(tmp_path):
             }
 
         def cached_prompts(self):
+            """处理 `cached_prompts`。"""
             return {}
 
         def cached_resources(self):
+            """处理 `cached_resources`。"""
             return {}
 
     manager = DummyMgr()
@@ -394,6 +434,7 @@ def test_dynamic_mcp_tools_refresh_once_then_reuse_cache(tmp_path):
 
 
 def test_mcp_tool_execute_from_worker_thread_uses_same_runner_loop(tmp_path):
+    """测试 `mcp_tool_execute_from_worker_thread_uses_same_runner_loop` 场景。"""
     add_project_mcp_server(
         tmp_path,
         "xiaohongshu-mcp",
@@ -404,57 +445,76 @@ def test_mcp_tool_execute_from_worker_thread_uses_same_runner_loop(tmp_path):
     manager = runtime.services_for(session).mcp_manager
 
     class DummyStack:
+        """表示 `DummyStack`。"""
         async def aclose(self) -> None:
+            """处理 `aclose`。"""
             return None
 
     class DummyTool:
+        """实现 `Dummy` 工具。"""
         def __init__(self, name: str) -> None:
+            """初始化实例状态。"""
             self.name = name
             self.description = f"tool:{name}"
             self.inputSchema = {"type": "object", "properties": {}, "required": []}
             self.annotations = {"readOnlyHint": True}
 
     class DummyToolListResult:
+        """保存 `DummyToolListResult`。"""
         def __init__(self) -> None:
+            """初始化实例状态。"""
             self.tools = [DummyTool("check_login_status")]
 
     class DummyPromptListResult:
+        """保存 `DummyPromptListResult`。"""
         def __init__(self) -> None:
+            """初始化实例状态。"""
             self.prompts = []
 
     class DummyResourceListResult:
+        """保存 `DummyResourceListResult`。"""
         def __init__(self) -> None:
+            """初始化实例状态。"""
             self.resources = []
 
     class DummyCallToolResult:
+        """保存 `DummyCallToolResult`。"""
         def __init__(self) -> None:
+            """初始化实例状态。"""
             self.content = "logged-in"
 
     class DummySession:
+        """保存 `DummySession`。"""
         def __init__(self) -> None:
+            """初始化实例状态。"""
             self._loop_id = id(asyncio.get_running_loop())
 
         async def list_tools(self):
+            """列出 `tools`。"""
             if id(asyncio.get_running_loop()) != self._loop_id:
                 raise RuntimeError("session used from different event loop")
             return DummyToolListResult()
 
         async def list_prompts(self):
+            """列出 `prompts`。"""
             if id(asyncio.get_running_loop()) != self._loop_id:
                 raise RuntimeError("session used from different event loop")
             return DummyPromptListResult()
 
         async def list_resources(self):
+            """列出 `resources`。"""
             if id(asyncio.get_running_loop()) != self._loop_id:
                 raise RuntimeError("session used from different event loop")
             return DummyResourceListResult()
 
         async def call_tool(self, tool_name, arguments=None):
+            """处理 `call_tool`。"""
             if id(asyncio.get_running_loop()) != self._loop_id:
                 raise RuntimeError("call_tool used from different event loop")
             return DummyCallToolResult()
 
     async def fake_open_connection(config):
+        """处理 `fake_open_connection`。"""
         return _ManagedConnection(
             config=config,
             stack=DummyStack(),
@@ -464,6 +524,7 @@ def test_mcp_tool_execute_from_worker_thread_uses_same_runner_loop(tmp_path):
     manager._open_connection = fake_open_connection  # type: ignore[method-assign]
 
     async def run():
+        """运行当前流程。"""
         names = [
             tool.name
             for tool in runtime.list_tools_for_session(session)
@@ -484,26 +545,34 @@ def test_mcp_tool_execute_from_worker_thread_uses_same_runner_loop(tmp_path):
 
 
 def test_mcp_tool_result_is_json_serializable_for_session_save(tmp_path):
+    """测试 `mcp_tool_result_is_json_serializable_for_session_save` 场景。"""
     runtime = build_runtime()
     session = SessionTranscript(session_id="test", cwd=str(tmp_path))
     services = runtime.services_for(session)
 
     class DummyTextContent:
+        """表示 `DummyTextContent`。"""
         def __init__(self, text: str) -> None:
+            """初始化实例状态。"""
             self.type = "text"
             self.text = text
             self.annotations = None
             self.meta = None
 
     class DummyMcpResult:
+        """保存 `DummyMcpResult`。"""
         def __init__(self) -> None:
+            """初始化实例状态。"""
             self.content = [DummyTextContent('{"status":"ok"}')]
 
     class DummyMgr:
+        """表示 `DummyMgr`。"""
         async def refresh_all(self):
+            """刷新 `all`。"""
             return []
 
         def cached_tools(self):
+            """处理 `cached_tools`。"""
             return {
                 "xiaohongshu-mcp": [
                     McpToolDefinition(
@@ -516,12 +585,15 @@ def test_mcp_tool_result_is_json_serializable_for_session_save(tmp_path):
             }
 
         def cached_prompts(self):
+            """处理 `cached_prompts`。"""
             return {}
 
         def cached_resources(self):
+            """处理 `cached_resources`。"""
             return {}
 
         async def call_tool(self, server_name, tool_name, arguments=None):
+            """处理 `call_tool`。"""
             return DummyMcpResult()
 
     services.mcp_manager = DummyMgr()
@@ -552,6 +624,7 @@ def test_mcp_tool_result_is_json_serializable_for_session_save(tmp_path):
 
 
 def test_agent_tool_can_launch_background_task(tmp_path):
+    """测试 `agent_tool_can_launch_background_task` 场景。"""
     runtime = build_runtime()
     session = SessionTranscript(session_id="test", cwd=str(tmp_path), model="dummy")
 
@@ -571,15 +644,19 @@ def test_agent_tool_can_launch_background_task(tmp_path):
 
 
 def test_runtime_merges_dynamic_mcp_tools(tmp_path):
+    """测试 `runtime_merges_dynamic_mcp_tools` 场景。"""
     runtime = build_runtime()
     session = SessionTranscript(session_id="test", cwd=str(tmp_path), model="dummy")
     services = runtime.services_for(session)
 
     class DummyMgr:
+        """表示 `DummyMgr`。"""
         async def refresh_all(self):
+            """刷新 `all`。"""
             return []
 
         def cached_tools(self):
+            """处理 `cached_tools`。"""
             return {
                 "demo": [
                     McpToolDefinition(
@@ -596,16 +673,21 @@ def test_runtime_merges_dynamic_mcp_tools(tmp_path):
             }
 
         def cached_prompts(self):
+            """处理 `cached_prompts`。"""
             return {}
 
         def cached_resources(self):
+            """处理 `cached_resources`。"""
             return {"demo": [McpResourceDefinition(uri="res://1", name="r1", server="demo")]}
 
         async def call_tool(self, server_name, tool_name, arguments=None):
+            """处理 `call_tool`。"""
             return {"content": f"{server_name}:{tool_name}:{arguments}"}
 
         async def read_resource(self, server_name, uri):
+            """读取 `resource`。"""
             class Result:
+                """表示 `Result`。"""
                 contents = [{"uri": uri, "text": "hello resource"}]
 
             return Result()

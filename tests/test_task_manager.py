@@ -6,6 +6,7 @@ from claude_code_thy.tasks import BackgroundTaskManager
 
 
 def test_local_agent_task_can_be_started_and_recorded(tmp_path, monkeypatch):
+    """测试 `local_agent_task_can_be_started_and_recorded` 场景。"""
     src_dir = Path(__file__).resolve().parents[1] / "src"
     monkeypatch.setenv("PYTHONPATH", str(src_dir))
 
@@ -33,6 +34,7 @@ def test_local_agent_task_can_be_started_and_recorded(tmp_path, monkeypatch):
 
 
 def test_task_manager_lists_non_bash_task_records(tmp_path):
+    """测试 `task_manager_lists_non_bash_task_records` 场景。"""
     manager = BackgroundTaskManager(tmp_path, TaskSettings())
     record = manager.create_task(
         task_type="workflow",

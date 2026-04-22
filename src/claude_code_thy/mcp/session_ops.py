@@ -13,11 +13,14 @@ RunSessionCall = Callable[..., Awaitable[Any]]
 
 
 class McpSessionOperations:
+    """表示 `McpSessionOperations`。"""
     def __init__(self, settings: AppSettings, run_session_call: RunSessionCall) -> None:
+        """初始化实例状态。"""
         self.settings = settings
         self._run_session_call = run_session_call
 
     async def list_tools(self, handle: _ManagedConnection) -> list[McpToolDefinition]:
+        """列出 `tools`。"""
         result = await self._run_session_call(handle.session.list_tools)
         tools = getattr(result, "tools", []) or []
         definitions: list[McpToolDefinition] = []
@@ -41,6 +44,7 @@ class McpSessionOperations:
         return definitions
 
     async def list_prompts(self, handle: _ManagedConnection) -> list[McpPromptDefinition]:
+        """列出 `prompts`。"""
         result = await self._run_session_call(handle.session.list_prompts)
         prompts = getattr(result, "prompts", []) or []
         definitions: list[McpPromptDefinition] = []
@@ -64,6 +68,7 @@ class McpSessionOperations:
         server_name: str,
         handle: _ManagedConnection,
     ) -> list[McpResourceDefinition]:
+        """列出 `resources`。"""
         result = await self._run_session_call(handle.session.list_resources)
         resources = getattr(result, "resources", []) or []
         definitions: list[McpResourceDefinition] = []
@@ -85,6 +90,7 @@ class McpSessionOperations:
         prompt_name: str,
         arguments: dict[str, str] | None = None,
     ) -> Any:
+        """返回 `prompt`。"""
         session = handle.session
         timeout_message = f"MCP prompt timed out after {self.settings.mcp.tool_call_timeout_ms} ms"
         if hasattr(session, "get_prompt"):
@@ -110,6 +116,7 @@ class McpSessionOperations:
         tool_name: str,
         arguments: dict[str, object] | None = None,
     ) -> Any:
+        """处理 `call_tool`。"""
         return await self._run_session_call(
             lambda: handle.session.call_tool(tool_name, arguments or {}),
             timeout_message=(
@@ -122,6 +129,7 @@ class McpSessionOperations:
         handle: _ManagedConnection,
         uri: str,
     ) -> Any:
+        """读取 `resource`。"""
         return await self._run_session_call(
             lambda: handle.session.read_resource(uri),
             timeout_message=(

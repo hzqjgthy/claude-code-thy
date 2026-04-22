@@ -2,6 +2,7 @@ from claude_code_thy.config import AppConfig
 
 
 def test_app_config_defaults_without_api_credentials(monkeypatch):
+    """测试 `app_config_defaults_without_api_credentials` 场景。"""
     monkeypatch.delenv("CLAUDE_CODE_THY_PROVIDER", raising=False)
     monkeypatch.delenv("CLAUDE_CODE_THY_MODEL", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
@@ -14,9 +15,11 @@ def test_app_config_defaults_without_api_credentials(monkeypatch):
 
     assert config.provider == "unconfigured"
     assert config.model == "glm-4.5"
+    assert config.query_max_iterations == 1000
 
 
 def test_app_config_selects_anthropic_provider(monkeypatch):
+    """测试 `app_config_selects_anthropic_provider` 场景。"""
     monkeypatch.delenv("CLAUDE_CODE_THY_PROVIDER", raising=False)
     monkeypatch.delenv("CLAUDE_CODE_THY_MODEL", raising=False)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
@@ -30,6 +33,7 @@ def test_app_config_selects_anthropic_provider(monkeypatch):
 
 
 def test_app_config_selects_openai_responses_provider(monkeypatch):
+    """测试 `app_config_selects_openai_responses_provider` 场景。"""
     monkeypatch.delenv("CLAUDE_CODE_THY_PROVIDER", raising=False)
     monkeypatch.delenv("CLAUDE_CODE_THY_MODEL", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
@@ -46,6 +50,7 @@ def test_app_config_selects_openai_responses_provider(monkeypatch):
 
 
 def test_app_config_prefers_explicit_provider_and_global_model(monkeypatch):
+    """测试 `app_config_prefers_explicit_provider_and_global_model` 场景。"""
     monkeypatch.setenv("CLAUDE_CODE_THY_PROVIDER", "openai-responses-compatible")
     monkeypatch.setenv("CLAUDE_CODE_THY_MODEL", "gpt-5.3")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
@@ -55,3 +60,12 @@ def test_app_config_prefers_explicit_provider_and_global_model(monkeypatch):
 
     assert config.provider == "openai-responses-compatible"
     assert config.model == "gpt-5.3"
+
+
+def test_app_config_reads_query_max_iterations(monkeypatch):
+    """测试 `app_config_reads_query_max_iterations` 场景。"""
+    monkeypatch.setenv("CLAUDE_CODE_THY_QUERY_MAX_ITERATIONS", "321")
+
+    config = AppConfig.from_env()
+
+    assert config.query_max_iterations == 321

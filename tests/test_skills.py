@@ -8,9 +8,11 @@ from claude_code_thy.skills.types import PromptCommandSpec
 
 
 class EchoProvider(Provider):
+    """实现 `Echo` 提供方。"""
     name = "echo"
 
     async def complete(self, session, tools):
+        """完成当前流程。"""
         _ = tools
         return ProviderResponse(
             display_text=f"echo:{session.messages[-1].text}",
@@ -20,6 +22,7 @@ class EchoProvider(Provider):
 
 
 def test_inline_skill_slash_command_submits_expanded_prompt(tmp_path):
+    """测试 `inline_skill_slash_command_submits_expanded_prompt` 场景。"""
     skill_dir = tmp_path / ".claude-code-thy" / "skills" / "review"
     skill_dir.mkdir(parents=True)
     (skill_dir / "SKILL.md").write_text(
@@ -46,6 +49,7 @@ def test_inline_skill_slash_command_submits_expanded_prompt(tmp_path):
 
 
 def test_old_dot_claude_skills_path_is_not_loaded_by_default(tmp_path):
+    """测试 `old_dot_claude_skills_path_is_not_loaded_by_default` 场景。"""
     skill_dir = tmp_path / ".claude" / "skills" / "review"
     skill_dir.mkdir(parents=True)
     (skill_dir / "SKILL.md").write_text(
@@ -70,6 +74,7 @@ def test_old_dot_claude_skills_path_is_not_loaded_by_default(tmp_path):
 
 
 def test_mcp_prompt_slash_command_uses_unified_registry(tmp_path):
+    """测试 `mcp_prompt_slash_command_uses_unified_registry` 场景。"""
     store = SessionStore(root_dir=tmp_path / "sessions")
     runtime = ConversationRuntime(provider=EchoProvider(), session_store=store)
     session = store.create(cwd=str(tmp_path), model="dummy", provider_name="echo")
@@ -77,27 +82,35 @@ def test_mcp_prompt_slash_command_uses_unified_registry(tmp_path):
     services = runtime.tool_runtime.services_for(session)
 
     class DummyPrompt:
+        """表示 `DummyPrompt`。"""
         name = "hello"
         description = "hello prompt"
         arguments = ("topic",)
 
     class DummyMgr:
+        """表示 `DummyMgr`。"""
         async def refresh_all(self):
+            """刷新 `all`。"""
             return []
 
         def cached_prompts(self):
+            """处理 `cached_prompts`。"""
             return {"demo": [DummyPrompt()]}
 
         def cached_skill_commands(self):
+            """处理 `cached_skill_commands`。"""
             return []
 
         def cached_tools(self):
+            """处理 `cached_tools`。"""
             return {}
 
         async def get_prompt(self, server_name, prompt_name, arguments=None):
+            """返回 `prompt`。"""
             return {"server": server_name, "prompt": prompt_name, "arguments": arguments or {}}
 
         def snapshot(self):
+            """处理 `snapshot`。"""
             return []
 
     services.mcp_manager = DummyMgr()
@@ -110,6 +123,7 @@ def test_mcp_prompt_slash_command_uses_unified_registry(tmp_path):
 
 
 def test_skill_tool_executes_mcp_skill_from_registry(tmp_path):
+    """测试 `skill_tool_executes_mcp_skill_from_registry` 场景。"""
     store = SessionStore(root_dir=tmp_path / "sessions")
     runtime = ConversationRuntime(provider=EchoProvider(), session_store=store)
     session = store.create(cwd=str(tmp_path), model="dummy", provider_name="echo")
@@ -117,10 +131,13 @@ def test_skill_tool_executes_mcp_skill_from_registry(tmp_path):
     services = runtime.tool_runtime.services_for(session)
 
     class DummyMgr:
+        """表示 `DummyMgr`。"""
         def cached_prompt_commands(self):
+            """处理 `cached_prompt_commands`。"""
             return []
 
         def cached_skill_commands(self):
+            """处理 `cached_skill_commands`。"""
             return [
                 PromptCommandSpec(
                     name="demo:review",
@@ -136,6 +153,7 @@ def test_skill_tool_executes_mcp_skill_from_registry(tmp_path):
             ]
 
         def cached_tools(self):
+            """处理 `cached_tools`。"""
             return {}
 
     services.mcp_manager = DummyMgr()

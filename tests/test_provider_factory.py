@@ -4,6 +4,7 @@ from claude_code_thy.providers.base import ProviderConfigurationError
 
 
 def test_build_provider_returns_real_provider_when_configured():
+    """测试 `build_provider_returns_real_provider_when_configured` 场景。"""
     config = AppConfig(
         provider="anthropic-compatible",
         model="claude-sonnet-4-5",
@@ -16,6 +17,7 @@ def test_build_provider_returns_real_provider_when_configured():
 
 
 def test_build_provider_raises_when_unconfigured():
+    """测试 `build_provider_raises_when_unconfigured` 场景。"""
     config = AppConfig(
         provider="unconfigured",
         model="glm-4.5",
@@ -30,6 +32,7 @@ def test_build_provider_raises_when_unconfigured():
 
 
 def test_build_provider_returns_openai_provider_when_configured():
+    """测试 `build_provider_returns_openai_provider_when_configured` 场景。"""
     config = AppConfig(
         provider="openai-responses-compatible",
         model="gpt-5.4",

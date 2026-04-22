@@ -16,16 +16,20 @@ from claude_code_thy.tools import (
 
 
 class QueryEngine:
+    """驱动一轮对话完成、工具执行和权限暂停/恢复的主循环。"""
     def __init__(
         self,
         *,
         provider: Provider,
         session_store: SessionStore,
         tool_runtime: ToolRuntime,
+        max_iterations: int = 1000,
     ) -> None:
+        """注入模型提供方、会话存储、工具运行时和单轮最大自动推进次数。"""
         self.provider = provider
         self.session_store = session_store
         self.tool_runtime = tool_runtime
+        self.max_iterations = max(1, max_iterations)
 
     async def submit(
         self,
@@ -34,6 +38,7 @@ class QueryEngine:
         *,
         tool_event_handler: ToolEventHandler | None = None,
     ) -> SessionTranscript:
+        """把用户输入写入会话后，持续推进直到模型停下或等待权限。"""
         session.add_message(
             "user",
             prompt,
@@ -53,6 +58,7 @@ class QueryEngine:
         approved: bool,
         tool_event_handler: ToolEventHandler | None = None,
     ) -> SessionTranscript:
+        """在用户确认后恢复上一次被权限中断的工具调用。"""
         tool_name = str(pending.get("tool_name", "")).strip()
         tool_use_id = str(pending.get("tool_use_id", "")).strip() or None
         input_data = pending.get("input_data", {})
@@ -131,8 +137,8 @@ class QueryEngine:
         *,
         tool_event_handler: ToolEventHandler | None = None,
     ) -> SessionTranscript:
-        max_iterations = 1000
-        for _ in range(max_iterations):
+        """循环执行“模型回复 -> 工具调用”，直到拿到最终文本或需要暂停。"""
+        for _ in range(self.max_iterations):
             try:
                 response = await self.provider.complete(
                     session,
@@ -222,7 +228,10 @@ class QueryEngine:
                 if self._should_pause_after_tool_result(call.name):
                     return session
 
-        session.add_message("assistant", "工具调用轮次超出限制，已停止自动执行。")
+        session.add_message(
+            "assistant",
+            f"工具调用轮次超出限制（{self.max_iterations}），已停止自动执行。",
+        )
         self.session_store.save(session)
         return session
 
@@ -236,6 +245,7 @@ class QueryEngine:
         tool_use_id: str | None,
         tool_event_handler: ToolEventHandler | None,
     ) -> SessionTranscript:
+        """把权限请求写入会话状态，并向前端发出确认提示。"""
         set_pending_permission(
             session,
             error.request,
@@ -269,6 +279,7 @@ class QueryEngine:
         return session
 
     def _should_pause_after_tool_result(self, tool_name: str) -> bool:
+        """决定某类工具执行完后是否立刻把控制权交还给前端。"""
         return tool_name.startswith("mcp__")
 
     async def _execute_tool_input(
@@ -281,6 +292,7 @@ class QueryEngine:
         original_input: dict[str, object] | None = None,
         event_handler: ToolEventHandler | None = None,
     ):
+        """执行工具输入，并对 MCP 工具额外施加 UI 等待超时保护。"""
         if not tool_name.startswith("mcp__"):
             return self.tool_runtime.execute_input(
                 tool_name,
@@ -311,6 +323,7 @@ class QueryEngine:
             ) from error
 
     def _mcp_ui_wait_timeout_seconds(self, session: SessionTranscript) -> float:
+        """从 MCP 配置推导出前端等待工具结果的超时时间。"""
         try:
             services = self.tool_runtime.services_for(session)
         except ToolError:
@@ -325,6 +338,7 @@ class QueryEngine:
         *,
         tool_use_id: str | None = None,
     ) -> None:
+        """把成功或失败的工具结果追加进会话，供模型继续消费。"""
         session.add_message(
             "tool",
             result.render(),
@@ -347,6 +361,7 @@ class QueryEngine:
         *,
         tool_use_id: str | None = None,
     ) -> None:
+        """把工具异常包装成统一的 tool 消息写回会话。"""
         session.add_message(
             "tool",
             result_text,

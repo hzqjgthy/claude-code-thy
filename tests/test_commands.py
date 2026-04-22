@@ -5,10 +5,12 @@ from claude_code_thy.tools import ToolRuntime, build_builtin_tools
 
 
 def build_processor(store: SessionStore) -> CommandProcessor:
+    """构建 `processor`。"""
     return CommandProcessor(store, ToolRuntime(build_builtin_tools()))
 
 
 def test_clear_command_clears_messages(tmp_path):
+    """测试 `clear_command_clears_messages` 场景。"""
     store = SessionStore(root_dir=tmp_path)
     processor = build_processor(store)
     session = store.create(cwd=str(tmp_path))
@@ -23,6 +25,7 @@ def test_clear_command_clears_messages(tmp_path):
 
 
 def test_init_command_creates_claude_md(tmp_path):
+    """测试 `init_command_creates_claude_md` 场景。"""
     store = SessionStore(root_dir=tmp_path / "sessions")
     processor = build_processor(store)
     session = store.create(cwd=str(tmp_path))
@@ -35,6 +38,7 @@ def test_init_command_creates_claude_md(tmp_path):
 
 
 def test_resume_command_switches_session(tmp_path):
+    """测试 `resume_command_switches_session` 场景。"""
     store = SessionStore(root_dir=tmp_path / "sessions")
     processor = build_processor(store)
 
@@ -52,6 +56,7 @@ def test_resume_command_switches_session(tmp_path):
 
 
 def test_model_command_updates_session_model(tmp_path):
+    """测试 `model_command_updates_session_model` 场景。"""
     store = SessionStore(root_dir=tmp_path / "sessions")
     processor = build_processor(store)
     session = store.create(cwd=str(tmp_path), model="glm-4.5", provider_name="test-provider")
@@ -64,6 +69,7 @@ def test_model_command_updates_session_model(tmp_path):
 
 
 def test_tools_command_lists_builtin_tools(tmp_path):
+    """测试 `tools_command_lists_builtin_tools` 场景。"""
     store = SessionStore(root_dir=tmp_path / "sessions")
     processor = build_processor(store)
     session = store.create(cwd=str(tmp_path), model="glm-4.5", provider_name="test-provider")
@@ -77,6 +83,7 @@ def test_tools_command_lists_builtin_tools(tmp_path):
 
 
 def test_mcp_command_lists_configured_servers(tmp_path):
+    """测试 `mcp_command_lists_configured_servers` 场景。"""
     (tmp_path / ".mcp.json").write_text(
         '{"mcpServers":{"demo":{"type":"http","url":"http://localhost:18060/mcp"}}}',
         encoding="utf-8",
@@ -94,6 +101,7 @@ def test_mcp_command_lists_configured_servers(tmp_path):
 
 
 def test_tasks_command_suppresses_task_notifications(tmp_path):
+    """测试 `tasks_command_suppresses_task_notifications` 场景。"""
     store = SessionStore(root_dir=tmp_path / "sessions")
     processor = build_processor(store)
     session = store.create(cwd=str(tmp_path), model="glm-4.5", provider_name="test-provider")
@@ -106,6 +114,7 @@ def test_tasks_command_suppresses_task_notifications(tmp_path):
 
 
 def test_agents_command_suppresses_task_notifications(tmp_path):
+    """测试 `agents_command_suppresses_task_notifications` 场景。"""
     store = SessionStore(root_dir=tmp_path / "sessions")
     processor = build_processor(store)
     session = store.create(cwd=str(tmp_path), model="glm-4.5", provider_name="test-provider")
@@ -118,6 +127,7 @@ def test_agents_command_suppresses_task_notifications(tmp_path):
 
 
 def test_mcp_prompt_command_is_executed(tmp_path):
+    """测试 `mcp_prompt_command_is_executed` 场景。"""
     store = SessionStore(root_dir=tmp_path / "sessions")
     processor = build_processor(store)
     session = store.create(cwd=str(tmp_path), model="glm-4.5", provider_name="test-provider")
@@ -125,10 +135,13 @@ def test_mcp_prompt_command_is_executed(tmp_path):
     services = processor.tool_runtime.services_for(session)
 
     class DummyMgr:
+        """表示 `DummyMgr`。"""
         async def refresh_all(self):
+            """刷新 `all`。"""
             return []
 
         def cached_prompts(self):
+            """处理 `cached_prompts`。"""
             return {
                 "demo": [
                     McpPromptDefinition(
@@ -140,12 +153,15 @@ def test_mcp_prompt_command_is_executed(tmp_path):
             }
 
         def cached_tools(self):
+            """处理 `cached_tools`。"""
             return {}
 
         def cached_resources(self):
+            """处理 `cached_resources`。"""
             return {}
 
         async def get_prompt(self, server_name, prompt_name, arguments=None):
+            """返回 `prompt`。"""
             return {"prompt": prompt_name, "arguments": arguments}
 
     services.mcp_manager = DummyMgr()
@@ -157,6 +173,7 @@ def test_mcp_prompt_command_is_executed(tmp_path):
 
 
 def test_dynamic_mcp_tool_slash_command_executes(tmp_path):
+    """测试 `dynamic_mcp_tool_slash_command_executes` 场景。"""
     store = SessionStore(root_dir=tmp_path / "sessions")
     processor = build_processor(store)
     session = store.create(cwd=str(tmp_path), model="glm-4.5", provider_name="test-provider")
@@ -166,10 +183,13 @@ def test_dynamic_mcp_tool_slash_command_executes(tmp_path):
     from claude_code_thy.mcp.types import McpToolDefinition
 
     class DummyMgr:
+        """表示 `DummyMgr`。"""
         async def refresh_all(self):
+            """刷新 `all`。"""
             return []
 
         def cached_tools(self):
+            """处理 `cached_tools`。"""
             return {
                 "demo": [
                     McpToolDefinition(
@@ -182,12 +202,15 @@ def test_dynamic_mcp_tool_slash_command_executes(tmp_path):
             }
 
         def cached_prompts(self):
+            """处理 `cached_prompts`。"""
             return {}
 
         def cached_resources(self):
+            """处理 `cached_resources`。"""
             return {}
 
         async def call_tool(self, server_name, tool_name, arguments=None):
+            """处理 `call_tool`。"""
             return {"content": f"{server_name}:{tool_name}:ok"}
 
     services.mcp_manager = DummyMgr()
@@ -199,6 +222,7 @@ def test_dynamic_mcp_tool_slash_command_executes(tmp_path):
 
 
 def test_dynamic_mcp_tool_permission_resume_with_empty_structured_input_succeeds(tmp_path):
+    """测试 `dynamic_mcp_tool_permission_resume_with_empty_structured_input_succeeds` 场景。"""
     store = SessionStore(root_dir=tmp_path / "sessions")
     processor = build_processor(store)
     session = store.create(cwd=str(tmp_path), model="glm-4.5", provider_name="test-provider")
@@ -208,10 +232,13 @@ def test_dynamic_mcp_tool_permission_resume_with_empty_structured_input_succeeds
     from claude_code_thy.mcp.types import McpToolDefinition
 
     class DummyMgr:
+        """表示 `DummyMgr`。"""
         async def refresh_all(self):
+            """刷新 `all`。"""
             return []
 
         def cached_tools(self):
+            """处理 `cached_tools`。"""
             return {
                 "xiaohongshu-mcp": [
                     McpToolDefinition(
@@ -224,12 +251,15 @@ def test_dynamic_mcp_tool_permission_resume_with_empty_structured_input_succeeds
             }
 
         def cached_prompts(self):
+            """处理 `cached_prompts`。"""
             return {}
 
         def cached_resources(self):
+            """处理 `cached_resources`。"""
             return {}
 
         async def call_tool(self, server_name, tool_name, arguments=None):
+            """处理 `call_tool`。"""
             return {"content": f"{server_name}:{tool_name}:{arguments}"}
 
     services.mcp_manager = DummyMgr()
@@ -247,6 +277,7 @@ def test_dynamic_mcp_tool_permission_resume_with_empty_structured_input_succeeds
 
 
 def test_dynamic_mcp_tool_slash_command_tolerates_trailing_punctuation(tmp_path):
+    """测试 `dynamic_mcp_tool_slash_command_tolerates_trailing_punctuation` 场景。"""
     store = SessionStore(root_dir=tmp_path / "sessions")
     processor = build_processor(store)
     session = store.create(cwd=str(tmp_path), model="glm-4.5", provider_name="test-provider")
@@ -256,10 +287,13 @@ def test_dynamic_mcp_tool_slash_command_tolerates_trailing_punctuation(tmp_path)
     from claude_code_thy.mcp.types import McpToolDefinition
 
     class DummyMgr:
+        """表示 `DummyMgr`。"""
         async def refresh_all(self):
+            """刷新 `all`。"""
             return []
 
         def cached_tools(self):
+            """处理 `cached_tools`。"""
             return {
                 "xiaohongshu-mcp": [
                     McpToolDefinition(
@@ -272,15 +306,19 @@ def test_dynamic_mcp_tool_slash_command_tolerates_trailing_punctuation(tmp_path)
             }
 
         def cached_prompts(self):
+            """处理 `cached_prompts`。"""
             return {}
 
         def cached_resources(self):
+            """处理 `cached_resources`。"""
             return {}
 
         def snapshot(self):
+            """处理 `snapshot`。"""
             return []
 
         async def call_tool(self, server_name, tool_name, arguments=None):
+            """处理 `call_tool`。"""
             return {"content": f"{server_name}:{tool_name}:ok"}
 
     services.mcp_manager = DummyMgr()
@@ -292,6 +330,7 @@ def test_dynamic_mcp_tool_slash_command_tolerates_trailing_punctuation(tmp_path)
 
 
 def test_missing_dynamic_mcp_command_reports_mcp_diagnostics(tmp_path):
+    """测试 `missing_dynamic_mcp_command_reports_mcp_diagnostics` 场景。"""
     store = SessionStore(root_dir=tmp_path / "sessions")
     processor = build_processor(store)
     session = store.create(cwd=str(tmp_path), model="glm-4.5", provider_name="test-provider")
@@ -299,19 +338,25 @@ def test_missing_dynamic_mcp_command_reports_mcp_diagnostics(tmp_path):
     services = processor.tool_runtime.services_for(session)
 
     class DummyMgr:
+        """表示 `DummyMgr`。"""
         async def refresh_all(self):
+            """刷新 `all`。"""
             return []
 
         def cached_tools(self):
+            """处理 `cached_tools`。"""
             return {}
 
         def cached_prompts(self):
+            """处理 `cached_prompts`。"""
             return {}
 
         def cached_resources(self):
+            """处理 `cached_resources`。"""
             return {}
 
         def snapshot(self):
+            """处理 `snapshot`。"""
             return [
                 McpServerConnection(
                     name="xiaohongshu-mcp",
@@ -335,6 +380,7 @@ def test_missing_dynamic_mcp_command_reports_mcp_diagnostics(tmp_path):
 
 
 def test_dynamic_mcp_tool_slash_command_resolves_from_server_lookup(tmp_path):
+    """测试 `dynamic_mcp_tool_slash_command_resolves_from_server_lookup` 场景。"""
     store = SessionStore(root_dir=tmp_path / "sessions")
     processor = build_processor(store)
     session = store.create(cwd=str(tmp_path), model="glm-4.5", provider_name="test-provider")
@@ -344,10 +390,13 @@ def test_dynamic_mcp_tool_slash_command_resolves_from_server_lookup(tmp_path):
     from claude_code_thy.mcp.types import McpToolDefinition
 
     class DummyMgr:
+        """表示 `DummyMgr`。"""
         async def refresh_all(self):
+            """刷新 `all`。"""
             return []
 
         def configs(self):
+            """处理 `configs`。"""
             return {
                 "xiaohongshu-mcp": McpServerConfig(
                     name="xiaohongshu-mcp",
@@ -358,18 +407,23 @@ def test_dynamic_mcp_tool_slash_command_resolves_from_server_lookup(tmp_path):
             }
 
         def cached_tools(self):
+            """处理 `cached_tools`。"""
             return {}
 
         def cached_prompts(self):
+            """处理 `cached_prompts`。"""
             return {}
 
         def cached_resources(self):
+            """处理 `cached_resources`。"""
             return {}
 
         def snapshot(self):
+            """处理 `snapshot`。"""
             return []
 
         async def list_tools(self, server_name):
+            """列出 `tools`。"""
             assert server_name == "xiaohongshu-mcp"
             return [
                 McpToolDefinition(
@@ -381,6 +435,7 @@ def test_dynamic_mcp_tool_slash_command_resolves_from_server_lookup(tmp_path):
             ]
 
         async def call_tool(self, server_name, tool_name, arguments=None):
+            """处理 `call_tool`。"""
             return {"content": f"{server_name}:{tool_name}:ok"}
 
     services.mcp_manager = DummyMgr()
@@ -393,6 +448,7 @@ def test_dynamic_mcp_tool_slash_command_resolves_from_server_lookup(tmp_path):
 
 
 def test_read_command_uses_tool_runtime(tmp_path):
+    """测试 `read_command_uses_tool_runtime` 场景。"""
     (tmp_path / "README.md").write_text("hello tool read", encoding="utf-8")
     store = SessionStore(root_dir=tmp_path / "sessions")
     processor = build_processor(store)
@@ -406,6 +462,7 @@ def test_read_command_uses_tool_runtime(tmp_path):
 
 
 def test_edit_command_uses_tool_runtime(tmp_path):
+    """测试 `edit_command_uses_tool_runtime` 场景。"""
     (tmp_path / "file.txt").write_text("hello old world", encoding="utf-8")
     store = SessionStore(root_dir=tmp_path / "sessions")
     processor = build_processor(store)
@@ -421,6 +478,7 @@ def test_edit_command_uses_tool_runtime(tmp_path):
 
 
 def test_agent_run_command_starts_local_agent_task(tmp_path, monkeypatch):
+    """测试 `agent_run_command_starts_local_agent_task` 场景。"""
     src_dir = tmp_path.parent / "src"
     project_src = __import__("pathlib").Path(__file__).resolve().parents[1] / "src"
     monkeypatch.setenv("PYTHONPATH", str(project_src))
@@ -437,6 +495,7 @@ def test_agent_run_command_starts_local_agent_task(tmp_path, monkeypatch):
 
 
 def test_agents_command_lists_agent_tasks(tmp_path, monkeypatch):
+    """测试 `agents_command_lists_agent_tasks` 场景。"""
     project_src = __import__("pathlib").Path(__file__).resolve().parents[1] / "src"
     monkeypatch.setenv("PYTHONPATH", str(project_src))
 
@@ -453,6 +512,7 @@ def test_agents_command_lists_agent_tasks(tmp_path, monkeypatch):
 
 
 def test_task_stop_command_stops_background_task(tmp_path):
+    """测试 `task_stop_command_stops_background_task` 场景。"""
     store = SessionStore(root_dir=tmp_path / "sessions")
     processor = build_processor(store)
     session = store.create(cwd=str(tmp_path), model="glm-4.5", provider_name="test-provider")
@@ -469,6 +529,7 @@ def test_task_stop_command_stops_background_task(tmp_path):
 
 
 def test_agent_wait_command_returns_agent_status(tmp_path, monkeypatch):
+    """测试 `agent_wait_command_returns_agent_status` 场景。"""
     project_src = __import__("pathlib").Path(__file__).resolve().parents[1] / "src"
     monkeypatch.setenv("PYTHONPATH", str(project_src))
 

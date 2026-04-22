@@ -6,7 +6,9 @@ from claude_code_thy.tools.base import PermissionResult, Tool, ToolContext, Tool
 
 
 class McpAuthTool(Tool):
+    """实现 `McpAuth` 工具。"""
     def __init__(self, server_name: str) -> None:
+        """初始化实例状态。"""
         self.server_name = server_name
         self.name = build_mcp_tool_name(server_name, "authenticate")
         self.description = f"启动 MCP server `{server_name}` 的 OAuth 认证流程。"
@@ -14,6 +16,7 @@ class McpAuthTool(Tool):
         self.input_schema = {"type": "object", "properties": {}}
 
     def parse_raw_input(self, raw_args: str, context: ToolContext) -> dict[str, object]:
+        """解析 `raw_input`。"""
         _ = (raw_args, context)
         return {}
 
@@ -22,13 +25,16 @@ class McpAuthTool(Tool):
         input_data: dict[str, object],
         context: ToolContext,
     ) -> PermissionResult:
+        """检查 `permissions`。"""
         _ = context
         return PermissionResult.allow(updated_input=input_data)
 
     def execute(self, raw_args: str, context: ToolContext) -> ToolResult:
+        """执行当前流程。"""
         return self.execute_input({}, context)
 
     def execute_input(self, input_data: dict[str, object], context: ToolContext) -> ToolResult:
+        """执行 `input`。"""
         _ = input_data
         if context.services is None:
             raise ToolError("MCP manager is unavailable")
@@ -37,6 +43,7 @@ class McpAuthTool(Tool):
             raise ToolError(f"未找到 MCP server：{self.server_name}")
 
         def _on_complete(ok: bool, message: str | None) -> None:
+            """处理 `on_complete`。"""
             if not ok:
                 return
             context.services.mcp_manager.refresh_server_sync(self.server_name)

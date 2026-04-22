@@ -1,0 +1,38 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+      {
+        "name": "claude-code-thy: UI",
+        "type": "debugpy",
+        "request": "launch",
+        "python": "/Users/thy/miniforge3/envs/claude-code-thy/bin/python",
+        "module": "claude_code_thy",
+        "cwd": "${workspaceFolder}",
+        "console": "integratedTerminal",
+        "justMyCode": false
+      },
+      {
+        "name": "claude-code-thy: print",
+        "type": "debugpy",
+        "request": "launch",
+        "python": "/Users/thy/miniforge3/envs/claude-code-thy/bin/python",
+        "module": "claude_code_thy",
+        "cwd": "${workspaceFolder}",
+        "args": ["--print", "你好"],
+        "console": "integratedTerminal",
+        "justMyCode": false
+      },
+      {
+        "name": "pytest: test_config.py",
+        "type": "debugpy",
+        "request": "launch",
+        "python": "/Users/thy/miniforge3/envs/claude-code-thy/bin/python",
+        "module": "pytest",
+        "cwd": "${workspaceFolder}",
+        "args": ["tests/test_config.py", "-q"],
+        "console": "integratedTerminal",
+        "justMyCode": false
+      }
+    ]
+  }
+  

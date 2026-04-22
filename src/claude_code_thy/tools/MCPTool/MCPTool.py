@@ -9,7 +9,9 @@ from claude_code_thy.tools.base import PermissionResult, Tool, ToolContext, Tool
 
 
 class MCPTool(Tool):
+    """实现 `MCP` 工具。"""
     def __init__(self, server_name: str, definition: McpToolDefinition) -> None:
+        """初始化实例状态。"""
         self.server_name = server_name
         self.definition = definition
         self.name = definition.name
@@ -18,21 +20,26 @@ class MCPTool(Tool):
         self.input_schema = definition.input_schema or {"type": "object", "properties": {}}
 
     def is_read_only(self) -> bool:
+        """返回是否满足 `is_read_only` 条件。"""
         return bool(self.definition.annotations.get("readOnlyHint", False))
 
     def is_concurrency_safe(self) -> bool:
+        """返回是否满足 `is_concurrency_safe` 条件。"""
         return self.is_read_only()
 
     def original_name(self) -> str:
+        """处理 `original_name`。"""
         return str(self.definition.annotations.get("original_name", self.name))
 
     def search_behavior(self) -> dict[str, bool]:
+        """搜索 `behavior`。"""
         return {
             "is_search": bool(self.definition.annotations.get("openWorldHint", False)),
             "is_read": self.is_read_only(),
         }
 
     def parse_raw_input(self, raw_args: str, context: ToolContext) -> dict[str, object]:
+        """解析 `raw_input`。"""
         _ = (raw_args, context)
         raise ToolError("MCP tool 需要结构化输入，不支持 slash 纯文本参数解析")
 
@@ -41,6 +48,7 @@ class MCPTool(Tool):
         input_data: dict[str, object],
         context: ToolContext,
     ) -> PermissionResult:
+        """检查 `permissions`。"""
         _ = input_data
         if self.is_read_only():
             return PermissionResult.allow(updated_input=input_data)
@@ -54,9 +62,11 @@ class MCPTool(Tool):
         return PermissionResult.ask(request, updated_input=input_data)
 
     def execute(self, raw_args: str, context: ToolContext) -> ToolResult:
+        """执行当前流程。"""
         raise ToolError("MCP tool 不支持 slash 文本执行。")
 
     def execute_input(self, input_data: dict[str, object], context: ToolContext) -> ToolResult:
+        """执行 `input`。"""
         if context.services is None:
             raise ToolError("MCP manager is unavailable")
         timeout_s = _interactive_mcp_timeout_seconds(context)
@@ -93,6 +103,7 @@ class MCPTool(Tool):
 
 
 def _interactive_mcp_timeout_seconds(context: ToolContext) -> float:
+    """处理 `interactive_mcp_timeout_seconds`。"""
     if context.services is None:
         return 30.0
     timeout_ms = context.services.settings.mcp.tool_call_timeout_ms

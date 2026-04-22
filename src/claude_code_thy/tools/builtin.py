@@ -14,6 +14,7 @@ from claude_code_thy.tools.SkillTool import SkillTool
 
 
 def build_builtin_tools() -> list[Tool]:
+    """构建 `builtin_tools`。"""
     return [
         AgentTool(),
         BashTool(),

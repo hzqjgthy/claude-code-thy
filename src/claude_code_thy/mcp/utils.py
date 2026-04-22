@@ -11,10 +11,12 @@ from typing import Any, Awaitable
 
 
 def utc_now() -> str:
+    """返回 ISO 格式的 UTC 时间字符串。"""
     return datetime.now(timezone.utc).isoformat()
 
 
 def read_json_file(path: Path) -> dict[str, object] | None:
+    """安全读取一个 JSON 文件；不是对象时返回 `None`。"""
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -23,12 +25,15 @@ def read_json_file(path: Path) -> dict[str, object] | None:
 
 
 def write_json_file(path: Path, data: dict[str, object]) -> None:
+    """把对象写成 UTF-8 JSON 文件，并确保父目录存在。"""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 class _BackgroundAsyncRunner:
+    """在后台线程常驻一个事件循环，供同步代码复用异步调用。"""
     def __init__(self) -> None:
+        """启动后台线程并等待事件循环就绪。"""
         self._ready = threading.Event()
         self._thread = threading.Thread(
             target=self._bootstrap,
@@ -41,6 +46,7 @@ class _BackgroundAsyncRunner:
         self._ready.wait()
 
     def _bootstrap(self) -> None:
+        """在线程内创建事件循环并在退出时清理未完成任务。"""
         loop = asyncio.new_event_loop()
         self._loop = loop
         asyncio.set_event_loop(loop)
@@ -57,6 +63,7 @@ class _BackgroundAsyncRunner:
             loop.close()
 
     def run(self, awaitable: Awaitable[Any], *, timeout: float | None = None) -> Any:
+        """把一个 awaitable 投递到共享事件循环并同步等待结果。"""
         if self._closed:
             raise RuntimeError("background async runner has been closed")
         loop = self._loop
@@ -64,6 +71,7 @@ class _BackgroundAsyncRunner:
             raise RuntimeError("background async runner is not ready")
 
         async def _await_any() -> Any:
+            """简单包装 awaitable，便于交给线程安全接口调度。"""
             return await awaitable
 
         future = asyncio.run_coroutine_threadsafe(_await_any(), loop)
@@ -74,6 +82,7 @@ class _BackgroundAsyncRunner:
             raise TimeoutError("shared async runner timed out") from error
 
     def close(self) -> None:
+        """停止后台事件循环并等待线程退出。"""
         if self._closed:
             return
         self._closed = True
@@ -89,6 +98,7 @@ _runner: _BackgroundAsyncRunner | None = None
 
 
 def _shared_runner() -> _BackgroundAsyncRunner:
+    """懒加载并返回全局共享的异步运行器。"""
     global _runner
     with _runner_lock:
         if _runner is None or _runner._closed:
@@ -97,6 +107,7 @@ def _shared_runner() -> _BackgroundAsyncRunner:
 
 
 def _shutdown_runner() -> None:
+    """在进程退出时关闭全局共享运行器。"""
     global _runner
     with _runner_lock:
         runner = _runner
@@ -109,6 +120,7 @@ atexit.register(_shutdown_runner)
 
 
 def run_async_sync(awaitable: Awaitable[Any], *, timeout: float | None = None) -> Any:
+    """让同步代码安全地等待一个异步调用完成。"""
     runner = _shared_runner()
     if threading.current_thread() is runner._thread:
         raise RuntimeError("run_async_sync cannot be called from the shared MCP runner thread")

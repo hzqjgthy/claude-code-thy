@@ -7,9 +7,11 @@ from claude_code_thy.session.store import SessionStore
 
 
 class DummyProvider(Provider):
+    """实现 `Dummy` 提供方。"""
     name = "dummy"
 
     async def complete(self, session, tools):
+        """完成当前流程。"""
         _ = (session, tools)
         return ProviderResponse(
             display_text="ok",
@@ -19,6 +21,7 @@ class DummyProvider(Provider):
 
 
 def test_read_permission_prompt_is_consumed_after_yes(tmp_path):
+    """测试 `read_permission_prompt_is_consumed_after_yes` 场景。"""
     settings_dir = tmp_path / ".claude-code-thy"
     settings_dir.mkdir()
     (settings_dir / "settings.local.json").write_text(

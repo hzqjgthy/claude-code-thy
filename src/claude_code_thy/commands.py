@@ -16,6 +16,7 @@ from claude_code_thy.tools import PermissionRequiredError, ToolError, ToolEventH
 
 @dataclass(slots=True)
 class CommandOutcome:
+    """描述一条 slash 命令执行后的会话变化和后续动作。"""
     session: SessionTranscript
     message_added: bool = False
     should_refresh_only: bool = False
@@ -25,7 +26,9 @@ class CommandOutcome:
 
 
 class CommandProcessor:
+    """解析 slash 命令，并把它们分发到工具、会话操作或 prompt command。"""
     def __init__(self, session_store: SessionStore, tool_runtime: ToolRuntime) -> None:
+        """注入会话存储和工具运行时，供命令执行时复用。"""
         self.session_store = session_store
         self.tool_runtime = tool_runtime
 
@@ -36,6 +39,7 @@ class CommandProcessor:
         *,
         event_handler: ToolEventHandler | None = None,
     ) -> CommandOutcome:
+        """解析一条 slash 命令，并执行对应的本地逻辑或工具调用。"""
         command_line = raw_prompt.strip()
         command, _, raw_args = command_line.partition(" ")
         command = command.lower()
@@ -137,6 +141,7 @@ class CommandProcessor:
         approved: bool,
         event_handler: ToolEventHandler | None = None,
     ) -> CommandOutcome:
+        """在用户确认后恢复一次被权限中断的 slash 命令执行。"""
         tool_name = str(pending.get("tool_name", "")).strip()
         raw_args = str(pending.get("raw_args", ""))
         input_data = pending.get("input_data", {})
@@ -243,6 +248,7 @@ class CommandProcessor:
         *,
         event_handler: ToolEventHandler | None = None,
     ) -> CommandOutcome:
+        """运行 `tool_input`。"""
         try:
             result = self.tool_runtime.execute_input(
                 tool_name,
@@ -304,6 +310,7 @@ class CommandProcessor:
         *,
         suppress_task_notifications: bool = False,
     ) -> CommandOutcome:
+        """向会话追加一条助手消息，并返回标准命令结果。"""
         session.add_message("assistant", text)
         self.session_store.save(session)
         return CommandOutcome(
@@ -313,6 +320,7 @@ class CommandProcessor:
         )
 
     def _help_text(self) -> str:
+        """返回内置 slash 命令总览。"""
         return (
             "可用命令：\n"
             "/help      查看命令帮助\n"
@@ -341,6 +349,7 @@ class CommandProcessor:
         )
 
     def _status_text(self, session: SessionTranscript) -> str:
+        """汇总当前会话的模型、消息数、工具数和恢复命令。"""
         transcript_path = self.session_store.path_for(session.session_id)
         return (
             "当前会话状态：\n"
@@ -356,6 +365,7 @@ class CommandProcessor:
         )
 
     def _sessions_text(self) -> str:
+        """列出最近保存的会话，方便用户恢复。"""
         sessions = self.session_store.list_recent(limit=10)
         if not sessions:
             return "当前还没有可恢复的会话。"
@@ -370,6 +380,7 @@ class CommandProcessor:
         current_session: SessionTranscript,
         args: list[str],
     ) -> CommandOutcome:
+        """切换到指定会话，或在未传参时恢复最近一次其他会话。"""
         target_session: SessionTranscript | None = None
 
         if args:
@@ -390,6 +401,7 @@ class CommandProcessor:
         return CommandOutcome(session=target_session, should_refresh_only=True)
 
     def _init_claude_md(self, cwd: str) -> str:
+        """在当前目录生成一个基础版 `CLAUDE.md`。"""
         path = Path(cwd) / "CLAUDE.md"
         if path.exists():
             return f"CLAUDE.md 已存在：{path}"
@@ -408,6 +420,7 @@ class CommandProcessor:
         return f"已创建 CLAUDE.md：{path}"
 
     def _model(self, session: SessionTranscript, args: list[str]) -> CommandOutcome:
+        """查看或切换当前会话使用的模型。"""
         if not args:
             return self._append_message(
                 session,
@@ -419,6 +432,7 @@ class CommandProcessor:
         return self._append_message(session, f"已将当前会话模型切换为：{session.model}")
 
     def _tools_text(self, session: SessionTranscript) -> str:
+        """列出当前会话可见的工具及其只读/搜索等元信息。"""
         lines = ["可用工具："]
         for tool in self.tool_runtime.list_tools_for_session(session):
             suffix = f"\n  用法: {tool.usage}" if getattr(tool, "usage", "") else ""
@@ -437,6 +451,7 @@ class CommandProcessor:
         return "\n".join(lines)
 
     def _tasks_text(self, session: SessionTranscript) -> str:
+        """列出后台任务快照，供用户查看运行状态。"""
         tasks = self.tool_runtime.services_for(session).task_manager.list_task_records()
         if not tasks:
             return "当前没有后台任务。"
@@ -455,6 +470,7 @@ class CommandProcessor:
         return "\n".join(lines)
 
     def _mcp_text(self, session: SessionTranscript) -> str:
+        """输出 MCP server 连接状态摘要。"""
         connections = self.tool_runtime.services_for(session).mcp_manager.snapshot()
         if not connections:
             return "当前没有配置 MCP server。"
@@ -469,6 +485,7 @@ class CommandProcessor:
         return "\n".join(lines)
 
     def _skills_text(self, session: SessionTranscript) -> str:
+        """列出当前会话可触发的本地 skill、MCP skill 和 MCP prompt。"""
         services = self.tool_runtime.services_for(session)
         try:
             run_async_sync(services.mcp_manager.refresh_all())
@@ -484,6 +501,7 @@ class CommandProcessor:
         return "\n".join(lines)
 
     def _agents_text(self, session: SessionTranscript) -> str:
+        """只过滤展示后台任务中的本地 agent 任务。"""
         tasks = [
             task
             for task in self.tool_runtime.services_for(session).task_manager.list_task_records()
@@ -501,6 +519,7 @@ class CommandProcessor:
         return "\n".join(lines)
 
     def _agent_run(self, session: SessionTranscript, raw_args: str) -> str:
+        """用 agent 工具启动一个后台子 agent 任务。"""
         prompt = raw_args.strip()
         if not prompt:
             return "用法：/agent-run <prompt>"
@@ -525,6 +544,7 @@ class CommandProcessor:
         return "\n".join(lines)
 
     def _agent_wait(self, session: SessionTranscript, args: list[str]) -> str:
+        """阻塞等待指定 agent 任务完成，并读取其最新输出。"""
         if not args:
             return "用法：/agent-wait <task_id> [timeout_seconds]"
         task_id = args[0]
@@ -547,6 +567,7 @@ class CommandProcessor:
         return header
 
     def _task_output_text(self, session: SessionTranscript, args: list[str]) -> str:
+        """读取后台任务输出文件的尾部内容。"""
         if not args:
             return "用法：/task-output <task_id> [lines]"
 
@@ -574,6 +595,7 @@ class CommandProcessor:
         )
 
     def _task_stop(self, session: SessionTranscript, args: list[str]) -> str:
+        """停止指定后台任务。"""
         if not args:
             return "用法：/task-stop <task_id>"
         task_id = args[0]
@@ -591,6 +613,7 @@ class CommandProcessor:
         *,
         event_handler: ToolEventHandler | None = None,
     ) -> CommandOutcome:
+        """以原始字符串参数运行一个内置工具。"""
         try:
             result = self.tool_runtime.execute(
                 tool_name,
@@ -646,6 +669,7 @@ class CommandProcessor:
         return CommandOutcome(session=session, message_added=True)
 
     def _format_summary(self, summary: SessionSummary) -> str:
+        """把会话摘要格式化成便于终端阅读的一行文本。"""
         return (
             f"- {summary.session_id} | {summary.updated_at} | "
             f"{summary.title or '(untitled)'} | {summary.model or '(no-model)'} | {summary.cwd}"
@@ -659,6 +683,7 @@ class CommandProcessor:
         *,
         event_handler: ToolEventHandler | None = None,
     ) -> CommandOutcome | None:
+        """执行统一命令模型里的 prompt command，包括本地 skill 与 MCP prompt。"""
         services = self.tool_runtime.services_for(session)
         if command.startswith("/mcp__"):
             try:
@@ -697,6 +722,7 @@ class CommandProcessor:
         *,
         event_handler: ToolEventHandler | None = None,
     ) -> CommandOutcome | None:
+        """处理 `/mcp__...` 形式的动态工具命令，并解析 JSON 参数。"""
         if not command.startswith("/mcp__"):
             return None
         tool_name = command[1:]
@@ -728,6 +754,7 @@ class CommandProcessor:
         session: SessionTranscript,
         command: str,
     ) -> str:
+        """在动态 MCP 命令未注册时，输出诊断信息帮助定位问题。"""
         manager = self.tool_runtime.services_for(session).mcp_manager
         refresh_error = ""
         try:
@@ -784,6 +811,7 @@ class CommandProcessor:
         return "\n".join(lines)
 
     def _normalize_dynamic_command_name(self, command: str) -> str:
+        """去掉结尾标点，避免中文输入法影响命令匹配。"""
         normalized = command.strip()
         while normalized and normalized[-1] in "。.!！?？，,：:；;、）)]】」』”’":
             normalized = normalized[:-1].rstrip()
@@ -792,6 +820,7 @@ class CommandProcessor:
 
 
 def format_session_summaries(summaries: Iterable[SessionSummary]) -> str:
+    """把一组会话摘要格式化成制表符分隔的文本。"""
     lines = []
     for summary in summaries:
         lines.append(

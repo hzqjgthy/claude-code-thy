@@ -31,6 +31,7 @@ def grep_with_rg(
     file_type: str | None,
     multiline: bool,
 ) -> list[str] | None:
+    """处理 `grep_with_rg`。"""
     import shutil
 
     if not shutil.which("rg"):
@@ -96,6 +97,7 @@ def grep_with_python(
     output_mode: str,
     ignore_case: bool,
 ) -> list[str]:
+    """处理 `grep_with_python`。"""
     flags = re.IGNORECASE if ignore_case else 0
     try:
         regex = re.compile(pattern, flags)
@@ -137,6 +139,7 @@ def grep_with_python(
 
 
 def split_glob_patterns(raw_patterns: str) -> list[str]:
+    """处理 `split_glob_patterns`。"""
     patterns: list[str] = []
     for raw_pattern in raw_patterns.split():
         if "{" in raw_pattern and "}" in raw_pattern:
@@ -147,6 +150,7 @@ def split_glob_patterns(raw_patterns: str) -> list[str]:
 
 
 def relativize_plain_path(context: ToolContext, line: str) -> str:
+    """处理 `relativize_plain_path`。"""
     candidate = Path(line)
     if candidate.is_absolute():
         return _display_path(candidate, context.cwd)
@@ -154,12 +158,14 @@ def relativize_plain_path(context: ToolContext, line: str) -> str:
 
 
 def relativize_count_line(context: ToolContext, line: str) -> str:
+    """处理 `relativize_count_line`。"""
     file_part, _, count_text = line.rpartition(":")
     file_path = relativize_plain_path(context, file_part)
     return f"{file_path}: {count_text.strip()}"
 
 
 def relativize_grep_content_line(context: ToolContext, line: str) -> str:
+    """处理 `relativize_grep_content_line`。"""
     colon_index = line.find(":")
     if colon_index <= 0:
         return line

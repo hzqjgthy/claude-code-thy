@@ -37,6 +37,7 @@ from .semantics import classify_shell_command, is_silent_shell_command
 
 
 class BashTool(Tool):
+    """实现 `Bash` 工具。"""
     name = "bash"
     description = DESCRIPTION
     usage = USAGE
@@ -62,9 +63,11 @@ class BashTool(Tool):
     }
 
     def is_concurrency_safe(self) -> bool:
+        """返回是否满足 `is_concurrency_safe` 条件。"""
         return False
 
     def parse_raw_input(self, raw_args: str, context: ToolContext) -> dict[str, object]:
+        """解析 `raw_input`。"""
         _ = context
         parser = _make_parser("bash", self.description)
         parser.add_argument("--timeout", type=int, default=30_000)
@@ -98,6 +101,7 @@ class BashTool(Tool):
         input_data: dict[str, object],
         context: ToolContext,
     ) -> PermissionResult:
+        """检查 `permissions`。"""
         command = str(input_data.get("command", "")).strip()
         analysis = validate_bash_command(
             command,
@@ -136,6 +140,7 @@ class BashTool(Tool):
         return PermissionResult.allow(updated_input=input_data)
 
     def prepare_permission_matcher(self, input_data: dict[str, object], context: ToolContext):
+        """处理 `prepare_permission_matcher`。"""
         _ = context
         command = str(input_data.get("command", "")).strip()
         return lambda pattern: pattern == command or command.startswith(pattern.rstrip("*"))
@@ -149,6 +154,7 @@ class BashTool(Tool):
         original_input: dict[str, object] | None = None,
         user_modified: bool = False,
     ) -> ToolResult:
+        """渲染 `tool_use_rejected_message`。"""
         _ = (context, original_input)
         command = str(input_data.get("command", "")).strip()
         return ToolResult(
@@ -173,6 +179,7 @@ class BashTool(Tool):
         )
 
     def execute(self, raw_args: str, context: ToolContext) -> ToolResult:
+        """执行当前流程。"""
         args = self.parse_raw_input(raw_args, context)
         return self._run_command(
             context,
@@ -184,6 +191,7 @@ class BashTool(Tool):
         )
 
     def execute_input(self, input_data: dict[str, object], context: ToolContext) -> ToolResult:
+        """执行 `input`。"""
         command = str(input_data.get("command", "")).strip()
         if not command:
             raise ToolError("tool input 缺少 command")
@@ -202,6 +210,7 @@ class BashTool(Tool):
         )
 
     def _optional_description(self, value: object) -> str | None:
+        """处理 `optional_description`。"""
         if value is None:
             return None
         text = str(value).strip()
@@ -217,6 +226,7 @@ class BashTool(Tool):
         run_in_background: bool,
         dangerously_disable_sandbox: bool,
     ) -> ToolResult:
+        """运行 `command`。"""
         assessment = enforce_bash_permissions(context, command)
         sandbox_decision = context.permission_context.decide_sandbox(
             command,
@@ -365,6 +375,7 @@ class BashTool(Tool):
         stdout_queue: Queue[object] = Queue()
 
         def _reader() -> None:
+            """处理 `reader`。"""
             assert process.stdout is not None
             try:
                 for line in iter(process.stdout.readline, ""):
@@ -535,6 +546,7 @@ class BashTool(Tool):
         )
 
     def _sandbox_metadata(self, decision, spec) -> dict[str, object]:
+        """处理 `sandbox_metadata`。"""
         if decision is None and spec is None:
             return {}
         data: dict[str, object] = {}
@@ -565,6 +577,7 @@ class BashTool(Tool):
         context: ToolContext,
         sed_edit: SedEditInfo | None,
     ) -> dict[str, object] | None:
+        """处理 `prepare_sed_preview`。"""
         if sed_edit is None:
             return None
         synthetic = (
@@ -604,6 +617,7 @@ class BashTool(Tool):
         context: ToolContext,
         sed_before: dict[str, object],
     ) -> dict[str, object] | None:
+        """处理 `finalize_sed_preview`。"""
         path = sed_before["path"]
         if not isinstance(path, Path) or not path.exists() or path.is_dir():
             return None

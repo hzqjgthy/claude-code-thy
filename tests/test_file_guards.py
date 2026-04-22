@@ -3,10 +3,12 @@ from claude_code_thy.tools import ToolError, ToolRuntime, build_builtin_tools
 
 
 def build_runtime() -> ToolRuntime:
+    """构建 `runtime`。"""
     return ToolRuntime(build_builtin_tools())
 
 
 def test_write_rejects_invalid_settings_json(tmp_path):
+    """测试 `write_rejects_invalid_settings_json` 场景。"""
     runtime = build_runtime()
     session = SessionTranscript(session_id="guard-1", cwd=str(tmp_path))
     settings_dir = tmp_path / ".claude-code-thy"
@@ -25,6 +27,7 @@ def test_write_rejects_invalid_settings_json(tmp_path):
 
 
 def test_edit_rejects_invalid_settings_json(tmp_path):
+    """测试 `edit_rejects_invalid_settings_json` 场景。"""
     runtime = build_runtime()
     session = SessionTranscript(session_id="guard-2", cwd=str(tmp_path))
     settings_dir = tmp_path / ".claude-code-thy"
@@ -50,6 +53,7 @@ def test_edit_rejects_invalid_settings_json(tmp_path):
 
 
 def test_write_rejects_invalid_settings_value_types(tmp_path):
+    """测试 `write_rejects_invalid_settings_value_types` 场景。"""
     runtime = build_runtime()
     session = SessionTranscript(session_id="guard-4", cwd=str(tmp_path))
     settings_dir = tmp_path / ".claude-code-thy"
@@ -72,6 +76,7 @@ def test_write_rejects_invalid_settings_value_types(tmp_path):
 
 
 def test_read_rejects_large_full_text_read(tmp_path):
+    """测试 `read_rejects_large_full_text_read` 场景。"""
     runtime = build_runtime()
     session = SessionTranscript(session_id="guard-3", cwd=str(tmp_path))
     path = tmp_path / "large.txt"

@@ -13,7 +13,9 @@ from .types import PromptCommandSpec
 
 
 class PromptCommandRegistry:
+    """统一收集、过滤并渲染本地与 MCP 来源的 prompt command。"""
     def __init__(self, workspace_root: Path, settings) -> None:
+        """准备工作区根目录、settings 和本地 skill 加载器。"""
         self.workspace_root = workspace_root.resolve()
         self.settings = settings
         self.loader = SkillLoader(self.workspace_root)
@@ -25,6 +27,7 @@ class PromptCommandRegistry:
         *,
         include_mcp_prompts: bool = True,
     ) -> list[PromptCommandSpec]:
+        """返回当前会话里允许用户显式调用的命令集合。"""
         commands = self._list_commands(session, services, include_mcp_prompts=include_mcp_prompts)
         return [command for command in commands if command.user_invocable]
 
@@ -33,6 +36,7 @@ class PromptCommandRegistry:
         session: SessionTranscript,
         services,
     ) -> list[PromptCommandSpec]:
+        """返回允许模型自动触发的命令集合。"""
         commands = self._list_commands(session, services, include_mcp_prompts=False)
         return [command for command in commands if command.model_invocable]
 
@@ -42,6 +46,7 @@ class PromptCommandRegistry:
         services,
         command_name: str,
     ) -> PromptCommandSpec | None:
+        """按命令名查找一个可由用户显式执行的命令。"""
         normalized = command_name[1:] if command_name.startswith("/") else command_name
         for command in self.list_user_commands(session, services):
             if command.name == normalized:
@@ -54,6 +59,7 @@ class PromptCommandRegistry:
         services,
         command_name: str,
     ) -> PromptCommandSpec | None:
+        """按命令名查找一个可由模型自动触发的命令。"""
         for command in self.list_model_commands(session, services):
             if command.name == command_name:
                 return command
@@ -66,6 +72,7 @@ class PromptCommandRegistry:
         session: SessionTranscript,
         services,
     ) -> str:
+        """把统一命令对象渲染成真正要提交给模型或 agent 的 prompt 文本。"""
         if command.kind == "mcp_prompt":
             if not command.server_name or not command.original_name:
                 return ""
@@ -100,6 +107,7 @@ class PromptCommandRegistry:
         *,
         limit: int = 24,
     ) -> str:
+        """生成一段简短说明，告诉模型当前有哪些可用 skill。"""
         commands = self.list_model_commands(session, services)
         if not commands:
             return "No skills available."
@@ -118,6 +126,7 @@ class PromptCommandRegistry:
         *,
         include_mcp_prompts: bool,
     ) -> list[PromptCommandSpec]:
+        """合并本地命令、MCP prompt 和 MCP skill，并按名称去重。"""
         state = services.command_state_for_session(session.session_id)
         local_commands = self._list_local_commands(state.skill_dirs, state.touched_paths)
         deduped: dict[str, PromptCommandSpec] = {command.name: command for command in local_commands}
@@ -130,6 +139,7 @@ class PromptCommandRegistry:
         return [deduped[name] for name in sorted(deduped)]
 
     def _cached_mcp_prompt_commands(self, services) -> list[PromptCommandSpec]:
+        """优先读取 MCP runtime 已构建好的 prompt command 缓存。"""
         cached = getattr(services.mcp_manager, "cached_prompt_commands", None)
         if callable(cached):
             return list(cached())
@@ -142,6 +152,7 @@ class PromptCommandRegistry:
         return prompt_specs
 
     def _cached_mcp_skill_commands(self, services) -> list[PromptCommandSpec]:
+        """读取 MCP runtime 中缓存的 skill command。"""
         cached = getattr(services.mcp_manager, "cached_skill_commands", None)
         if callable(cached):
             return list(cached())
@@ -152,6 +163,7 @@ class PromptCommandRegistry:
         skill_dirs: set[str],
         touched_paths: set[str],
     ) -> list[PromptCommandSpec]:
+        """从默认 roots、配置 roots 和按路径发现的目录中收集本地命令。"""
         command_map: dict[str, PromptCommandSpec] = {}
 
         for root_dir in self._local_root_dirs():
@@ -175,6 +187,7 @@ class PromptCommandRegistry:
         return [command_map[name] for name in sorted(command_map)]
 
     def _local_root_dirs(self) -> list[Path]:
+        """解析本地 skills 搜索根目录，并去重保留存在的路径。"""
         roots: list[Path] = []
         default_root = self.workspace_root / ".claude-code-thy" / "skills"
         if default_root.exists():
@@ -198,6 +211,7 @@ class PromptCommandRegistry:
         command: PromptCommandSpec,
         touched_paths: set[str],
     ) -> bool:
+        """根据命令声明的 `paths` 规则决定当前会话是否应显示它。"""
         if not command.paths:
             return True
         for touched in touched_paths:
@@ -207,6 +221,7 @@ class PromptCommandRegistry:
         return False
 
     def _relative_path(self, path: Path) -> str:
+        """尽量把路径转换成相对工作区的形式以便参与匹配。"""
         try:
             return str(path.resolve().relative_to(self.workspace_root))
         except ValueError:
@@ -218,6 +233,7 @@ class PromptCommandRegistry:
         raw_args: str,
         arg_names: tuple[str, ...],
     ) -> str:
+        """把 slash 命令传入的参数替换进 skill 文本模板。"""
         values = self._build_prompt_arguments(arg_names, raw_args)
         if not values and raw_args.strip():
             values = {"args": raw_args.strip()}
@@ -235,6 +251,7 @@ class PromptCommandRegistry:
         arg_names: tuple[str, ...],
         raw_args: str,
     ) -> dict[str, str]:
+        """按参数名列表把用户输入拆成命令模板可用的变量。"""
         text = raw_args.strip()
         if not arg_names:
             return {}

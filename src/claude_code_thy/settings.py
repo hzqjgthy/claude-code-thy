@@ -8,6 +8,7 @@ from pathlib import Path
 
 @dataclass(slots=True)
 class ToolPermissionRule:
+    """描述一条针对工具路径或命令的权限规则。"""
     effect: str
     tool: str
     pattern: str
@@ -17,6 +18,7 @@ class ToolPermissionRule:
 
 @dataclass(slots=True)
 class SandboxSettings:
+    """保存命令执行时的沙箱模式和例外名单。"""
     mode: str = "workspace-write"
     excluded_commands: tuple[str, ...] = ()
     dangerous_commands: tuple[str, ...] = ()
@@ -27,6 +29,7 @@ class SandboxSettings:
 
 @dataclass(slots=True)
 class TaskSettings:
+    """保存后台任务的数量限制和输出目录。"""
     max_background_tasks: int = 20
     tasks_dir: str = ".claude-code-thy/tasks"
     tool_results_dir: str = ".claude-code-thy/tool-results"
@@ -34,6 +37,7 @@ class TaskSettings:
 
 @dataclass(slots=True)
 class FileHistorySettings:
+    """控制文件快照历史是否开启以及存储上限。"""
     enabled: bool = True
     history_dir: str = ".claude-code-thy/file-history"
     max_snapshots_per_file: int = 20
@@ -41,12 +45,14 @@ class FileHistorySettings:
 
 @dataclass(slots=True)
 class SkillTrigger:
+    """声明某类路径命中后应额外启用哪个 skill 目录。"""
     pattern: str
     skill_dir: str
 
 
 @dataclass(slots=True)
 class SkillsSettings:
+    """保存本地 skills 搜索根目录和触发规则。"""
     enabled: bool = True
     search_roots: tuple[str, ...] = ()
     triggers: tuple[SkillTrigger, ...] = ()
@@ -54,6 +60,7 @@ class SkillsSettings:
 
 @dataclass(slots=True)
 class LspServerSettings:
+    """描述一个 LSP 服务端的启动命令和生效文件类型。"""
     name: str
     command: tuple[str, ...]
     file_globs: tuple[str, ...]
@@ -63,12 +70,14 @@ class LspServerSettings:
 
 @dataclass(slots=True)
 class LspSettings:
+    """保存是否启用 LSP 以及可用服务端列表。"""
     enabled: bool = False
     servers: tuple[LspServerSettings, ...] = ()
 
 
 @dataclass(slots=True)
 class McpSettings:
+    """保存 MCP 开关、server 配置和超时参数。"""
     enabled: bool = True
     servers: dict[str, dict[str, object]] = field(default_factory=dict)
     connect_timeout_ms: int = 15_000
@@ -77,6 +86,7 @@ class McpSettings:
 
 @dataclass(slots=True)
 class AppSettings:
+    """汇总项目级设置文件里所有可配置子模块的配置。"""
     permission_rules: tuple[ToolPermissionRule, ...] = ()
     read_ignore_patterns: tuple[str, ...] = (
         ".git",
@@ -97,6 +107,7 @@ class AppSettings:
 
     @classmethod
     def load_for_workspace(cls, cwd: Path) -> "AppSettings":
+        """从工作区内的 settings 文件加载并合并最终配置。"""
         settings_paths = _resolve_settings_paths(cwd)
         raw = _load_merged_settings_data(settings_paths)
         if not raw:
@@ -118,6 +129,7 @@ class AppSettings:
 
 
 def validate_settings_document(data: object) -> list[str]:
+    """对 settings JSON 做基础结构校验，返回所有发现的问题。"""
     errors: list[str] = []
     if not isinstance(data, dict):
         return ["settings 文档必须是 JSON object。"]
@@ -195,6 +207,7 @@ def validate_settings_document(data: object) -> list[str]:
 
 
 def _resolve_settings_paths(cwd: Path) -> list[Path]:
+    """确定当前工作区应读取哪些 settings 文件。"""
     configured = os.environ.get("CLAUDE_CODE_THY_SETTINGS")
     if configured:
         return [Path(configured).expanduser().resolve()]
@@ -206,6 +219,7 @@ def _resolve_settings_paths(cwd: Path) -> list[Path]:
 
 
 def _load_merged_settings_data(paths: list[Path]) -> dict[str, object]:
+    """按顺序读取并深度合并多个 settings 文件。"""
     merged: dict[str, object] = {}
     for path in paths:
         if not path.exists():
@@ -224,6 +238,7 @@ def _merge_settings_value(
     base: dict[str, object] | list[object] | object,
     override: dict[str, object] | list[object] | object,
 ):
+    """递归合并设置值：对象深合并，数组追加，标量覆盖。"""
     if isinstance(base, dict) and isinstance(override, dict):
         merged: dict[str, object] = {str(key): value for key, value in base.items()}
         for key, value in override.items():
@@ -238,6 +253,7 @@ def _merge_settings_value(
 
 
 def _validate_sandbox_document(data: dict[str, object]) -> list[str]:
+    """校验 sandbox 段落里的字段类型。"""
     errors: list[str] = []
     if "mode" in data and not isinstance(data["mode"], str):
         errors.append("sandbox.mode 必须是字符串。")
@@ -255,12 +271,14 @@ def _validate_sandbox_document(data: dict[str, object]) -> list[str]:
 
 
 def _load_tuple(value: object, *, default: tuple[str, ...]) -> tuple[str, ...]:
+    """把 JSON 数组安全地转换成去空白后的字符串元组。"""
     if not isinstance(value, list):
         return default
     return tuple(str(item).strip() for item in value if str(item).strip())
 
 
 def _load_permission_rules(value: object) -> tuple[ToolPermissionRule, ...]:
+    """兼容字符串简写和对象写法，加载权限规则列表。"""
     if not isinstance(value, list):
         return ()
 
@@ -300,6 +318,7 @@ def _load_permission_rules(value: object) -> tuple[ToolPermissionRule, ...]:
 
 
 def _load_sandbox_settings(value: object) -> SandboxSettings:
+    """从原始 JSON 片段构造沙箱配置对象。"""
     if not isinstance(value, dict):
         return SandboxSettings()
     return SandboxSettings(
@@ -313,6 +332,7 @@ def _load_sandbox_settings(value: object) -> SandboxSettings:
 
 
 def _load_task_settings(value: object) -> TaskSettings:
+    """从原始 JSON 片段构造后台任务配置。"""
     if not isinstance(value, dict):
         return TaskSettings()
     return TaskSettings(
@@ -323,6 +343,7 @@ def _load_task_settings(value: object) -> TaskSettings:
 
 
 def _load_file_history_settings(value: object) -> FileHistorySettings:
+    """从原始 JSON 片段构造文件历史配置。"""
     if not isinstance(value, dict):
         return FileHistorySettings()
     return FileHistorySettings(
@@ -333,6 +354,7 @@ def _load_file_history_settings(value: object) -> FileHistorySettings:
 
 
 def _load_skills_settings(value: object) -> SkillsSettings:
+    """从原始 JSON 片段构造本地 skills 配置。"""
     if not isinstance(value, dict):
         return SkillsSettings()
     triggers_raw = value.get("triggers", [])
@@ -354,6 +376,7 @@ def _load_skills_settings(value: object) -> SkillsSettings:
 
 
 def _load_lsp_settings(value: object) -> LspSettings:
+    """从原始 JSON 片段构造 LSP 配置，并过滤非法 server。"""
     if not isinstance(value, dict):
         return LspSettings()
 
@@ -387,6 +410,7 @@ def _load_lsp_settings(value: object) -> LspSettings:
 
 
 def _load_mcp_settings(value: object) -> McpSettings:
+    """从原始 JSON 片段构造 MCP 配置。"""
     if not isinstance(value, dict):
         return McpSettings()
     raw_servers = value.get("servers")

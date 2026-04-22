@@ -73,6 +73,7 @@ TOOL_EXTRA_RESULT_LINES = {
 
 
 def truncate_single_line(text: str, limit: int = 120) -> str:
+    """把多行文本压成单行并限制长度。"""
     collapsed = " ".join(text.split())
     if len(collapsed) <= limit:
         return collapsed
@@ -80,6 +81,7 @@ def truncate_single_line(text: str, limit: int = 120) -> str:
 
 
 def combine_text_lines(lines: list[Text]) -> Text:
+    """把多段 `Text` 对象拼成带换行的单个 Rich Text。"""
     combined = Text()
     for index, line in enumerate(lines):
         if index > 0:
@@ -89,6 +91,7 @@ def combine_text_lines(lines: list[Text]) -> Text:
 
 
 def tool_label(tool_name: str) -> str:
+    """把内部工具名转换成更适合 UI 展示的标签。"""
     if tool_name.startswith("mcp__"):
         parts = tool_name.split("__", 2)
         if len(parts) == 3:
@@ -99,6 +102,7 @@ def tool_label(tool_name: str) -> str:
 
 
 def summarize_tool_input(tool_name: str, raw_input: object) -> str:
+    """用对应工具的 UI 适配器把输入摘要成一行文字。"""
     if not isinstance(raw_input, dict):
         return ""
     renderer = TOOL_INPUT_SUMMARIZERS.get(tool_name)
@@ -108,6 +112,7 @@ def summarize_tool_input(tool_name: str, raw_input: object) -> str:
 
 
 def build_tool_call_message(message_text: str, tool_calls: list[object]) -> RenderableType:
+    """渲染一次 assistant 发起的工具调用消息。"""
     lines: list[RenderableType] = [Text("")]
     if message_text.strip():
         lines.append(
@@ -134,6 +139,7 @@ def build_tool_call_message(message_text: str, tool_calls: list[object]) -> Rend
 
 
 def build_permission_prompt_message(message_text: str, metadata: dict[str, object]) -> RenderableType:
+    """把权限确认请求渲染成独立面板。"""
     request = metadata.get("pending_permission")
     target = ""
     value = ""
@@ -163,6 +169,7 @@ def build_permission_prompt_message(message_text: str, metadata: dict[str, objec
 
 
 def build_task_notification_message(message_text: str, metadata: dict[str, object]) -> RenderableType:
+    """把任务完成或失败通知渲染成独立面板。"""
     task_id = str(metadata.get("task_id", "")).strip()
     task_status = str(metadata.get("task_status", "")).strip() or "updated"
     task_type = str(metadata.get("task_type", "")).strip() or "task"
@@ -183,6 +190,7 @@ def build_task_notification_message(message_text: str, metadata: dict[str, objec
 
 
 def build_tool_result_message(metadata: dict[str, object]) -> RenderableType:
+    """根据工具元数据渲染工具结果消息。"""
     label = str(metadata.get("display_name") or tool_label(str(metadata.get("tool_name", "tool"))))
     summary = str(metadata.get("summary", "")).strip()
     output = str(metadata.get("output", "")).strip()
@@ -235,6 +243,7 @@ def build_tool_result_message(metadata: dict[str, object]) -> RenderableType:
 
 
 def tool_result_summary(structured_data: object, fallback_output: str, *, summary: str = "") -> str:
+    """从结构化结果里提炼一条最适合展示的摘要。"""
     if not isinstance(structured_data, dict):
         return truncate_single_line(fallback_output) if fallback_output else ""
 
@@ -296,6 +305,7 @@ def tool_result_summary(structured_data: object, fallback_output: str, *, summar
 
 
 def format_size(value: object) -> str:
+    """把字节大小格式化成简洁的人类可读文本。"""
     if not isinstance(value, int):
         return "?"
     units = ["B", "KB", "MB", "GB"]

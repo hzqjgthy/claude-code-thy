@@ -17,6 +17,7 @@ def glob_with_rg(
     pattern: str,
     search_root: Path,
 ) -> tuple[list[str], bool] | tuple[None, bool]:
+    """处理 `glob_with_rg`。"""
     import shutil
 
     if not shutil.which("rg"):
@@ -51,6 +52,7 @@ def glob_with_python(
     pattern: str,
     search_root: Path,
 ) -> tuple[list[str], bool]:
+    """处理 `glob_with_python`。"""
     results: list[str] = []
     for candidate in search_root.glob(pattern):
         if not candidate.is_file():

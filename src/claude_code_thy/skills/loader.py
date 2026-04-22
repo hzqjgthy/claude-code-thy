@@ -14,16 +14,20 @@ from .types import PromptCommandSpec
 
 @dataclass(slots=True)
 class SkillLoadResult:
+    """保存解析后的 skill 命令对象以及它来自的文件路径。"""
     command: PromptCommandSpec
     file_path: str
 
 
 class SkillLoader:
+    """把本地 `SKILL.md` 解析成统一的 PromptCommandSpec。"""
     def __init__(self, workspace_root: Path) -> None:
+        """记录工作区根目录，并准备按文件时间戳缓存解析结果。"""
         self.workspace_root = workspace_root.resolve()
         self._cache: dict[tuple[str, str], tuple[int, SkillLoadResult]] = {}
 
     def load_from_skill_dir(self, skill_dir: Path) -> SkillLoadResult | None:
+        """把一个 skill 目录中的 `SKILL.md` 解析成命令定义。"""
         skill_dir = skill_dir.resolve()
         skill_file = skill_dir / "SKILL.md"
         if not skill_file.exists():
@@ -36,6 +40,7 @@ class SkillLoader:
         )
 
     def load_from_skill_root(self, root_dir: Path) -> list[SkillLoadResult]:
+        """递归扫描一个 skills 根目录，加载其中所有 `SKILL.md`。"""
         root_dir = root_dir.resolve()
         if not root_dir.exists():
             return []
@@ -58,6 +63,7 @@ class SkillLoader:
         command_name: str,
         skill_root: Path,
     ) -> SkillLoadResult | None:
+        """读取并解析单个 skill 文件，同时复用基于 mtime 的缓存。"""
         try:
             stat = skill_file.stat()
         except OSError:
@@ -107,6 +113,7 @@ class SkillLoader:
         return result
 
     def _command_name_from_root(self, root_dir: Path, skill_dir: Path) -> str:
+        """把 skill 相对路径转换成冒号分隔的命令名。"""
         relative = skill_dir.relative_to(root_dir)
         parts = [part for part in relative.parts if part]
         if not parts:

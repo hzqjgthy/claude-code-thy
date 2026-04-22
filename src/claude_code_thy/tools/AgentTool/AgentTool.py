@@ -12,6 +12,7 @@ DEFAULT_FOREGROUND_WAIT_MS = 120_000
 
 
 class AgentTool(Tool):
+    """实现 `Agent` 工具。"""
     name = "agent"
     description = DESCRIPTION
     usage = USAGE
@@ -35,9 +36,11 @@ class AgentTool(Tool):
     }
 
     def is_concurrency_safe(self) -> bool:
+        """返回是否满足 `is_concurrency_safe` 条件。"""
         return False
 
     def parse_raw_input(self, raw_args: str, context: ToolContext) -> dict[str, object]:
+        """解析 `raw_input`。"""
         _ = context
         parser = _make_parser("agent", self.description)
         parser.add_argument("--background", action="store_true")
@@ -65,10 +68,12 @@ class AgentTool(Tool):
         }
 
     def execute(self, raw_args: str, context: ToolContext) -> ToolResult:
+        """执行当前流程。"""
         args = self.parse_raw_input(raw_args, context)
         return self.execute_input(args, context)
 
     def execute_input(self, input_data: dict[str, object], context: ToolContext) -> ToolResult:
+        """执行 `input`。"""
         if context.services is None:
             raise ToolError("Background task manager is unavailable")
 
@@ -160,6 +165,7 @@ class AgentTool(Tool):
         *,
         auto_backgrounded: bool,
     ) -> ToolResult:
+        """处理 `background_result`。"""
         summary = "Agent running in background" if not auto_backgrounded else "Agent auto-backgrounded"
         output = (
             f"{summary}: {task_id}\n"

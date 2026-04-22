@@ -12,10 +12,12 @@ COMMAND_OPERATORS = {"||", "&&", "|", ";"}
 
 
 def split_shell_segments(command: str) -> list[str]:
+    """处理 `split_shell_segments`。"""
     return [segment for segment in COMPOUND_SPLIT_RE.split(command) if segment]
 
 
 def iter_shell_commands(command: str) -> list[str]:
+    """处理 `iter_shell_commands`。"""
     commands: list[str] = []
     segments = split_shell_segments(command)
     skip_redirect_target = False
@@ -36,6 +38,7 @@ def iter_shell_commands(command: str) -> list[str]:
 
 
 def extract_redirection_targets(command: str) -> list[str]:
+    """提取 `redirection_targets`。"""
     targets: list[str] = []
     segments = split_shell_segments(command)
     for index, segment in enumerate(segments):
@@ -50,6 +53,7 @@ def extract_redirection_targets(command: str) -> list[str]:
 
 
 def shell_split(command: str) -> list[str] | None:
+    """处理 `shell_split`。"""
     try:
         return shlex.split(command)
     except ValueError:
@@ -57,6 +61,7 @@ def shell_split(command: str) -> list[str] | None:
 
 
 def strip_leading_env_assignments(tokens: list[str]) -> list[str]:
+    """处理 `strip_leading_env_assignments`。"""
     index = 0
     while index < len(tokens):
         token = tokens[index]
@@ -70,6 +75,7 @@ def strip_leading_env_assignments(tokens: list[str]) -> list[str]:
 
 
 def base_command(command: str) -> str:
+    """处理 `base_command`。"""
     tokens = shell_split(command)
     if not tokens:
         return ""
@@ -78,6 +84,7 @@ def base_command(command: str) -> str:
 
 
 def second_token(command: str) -> str:
+    """处理 `second_token`。"""
     tokens = shell_split(command)
     if not tokens:
         return ""
@@ -86,13 +93,16 @@ def second_token(command: str) -> str:
 
 
 def is_cd_command(command: str) -> bool:
+    """返回是否满足 `is_cd_command` 条件。"""
     return base_command(command) == "cd"
 
 
 def is_git_command(command: str) -> bool:
+    """返回是否满足 `is_git_command` 条件。"""
     return base_command(command) == "git"
 
 
 def resolve_shell_path(raw_path: str, *, cwd: Path) -> Path:
+    """解析 `shell_path`。"""
     expanded = Path(os.path.expanduser(raw_path))
     return expanded if expanded.is_absolute() else cwd / expanded
