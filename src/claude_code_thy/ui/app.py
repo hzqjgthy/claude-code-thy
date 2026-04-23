@@ -51,6 +51,8 @@ class ClaudeCodeThyApp(App[None]):
         """保存当前会话和 provider，并构建对话运行时。"""
         super().__init__()
         self.session = session
+        self.scroll_sensitivity_x = 0.5
+        self.scroll_sensitivity_y = 1
         self.session_store = session_store
         self.provider = provider
         self._pending_prompt: str | None = None
@@ -65,16 +67,16 @@ class ClaudeCodeThyApp(App[None]):
         yield Static(id="hero")
         with VerticalScroll(id="chat_surface"):
             yield Vertical(id="message_list")
-            yield Static(id="tool_status")
-            yield Static(id="resume_hint")
-            with Horizontal(id="input_row"):
-                yield Static("❯", id="prompt_glyph")
-                yield Input(placeholder="", id="prompt_input")
+        yield Static(id="tool_status")
+        yield Static(id="resume_hint")
+        with Horizontal(id="input_row"):
+            yield Static("❯", id="prompt_glyph")
+            yield Input(placeholder="", id="prompt_input")
 
     def on_mount(self) -> None:
         """首次挂载时渲染界面初始状态并聚焦输入框。"""
         self._render_hero()
-        self._render_messages()
+        self._render_messages(auto_scroll=True)
         self._render_resume_hint()
         self._update_tool_status_from_messages()
         self.query_one("#prompt_input", Input).focus()
@@ -86,10 +88,11 @@ class ClaudeCodeThyApp(App[None]):
             return
 
         input_widget = self.query_one("#prompt_input", Input)
+        should_auto_scroll = self._chat_should_auto_scroll()
         input_widget.disabled = True
         input_widget.value = ""
         self._pending_prompt = prompt
-        self._render_messages()
+        self._render_messages(auto_scroll=should_auto_scroll)
         self._set_tool_status("Working…")
 
         outcome = await asyncio.to_thread(
@@ -100,7 +103,7 @@ class ClaudeCodeThyApp(App[None]):
         self.session = outcome.session
         self._pending_prompt = None
         self._render_hero()
-        self._render_messages()
+        self._render_messages(auto_scroll=should_auto_scroll)
         self._render_resume_hint()
         self._update_tool_status_from_messages()
 
@@ -129,9 +132,11 @@ class ClaudeCodeThyApp(App[None]):
         self.query_one("#hero", Static).update(self._build_hero_panel())
         self._hero_signature = signature
 
-    def _render_messages(self) -> None:
+    def _render_messages(self, *, auto_scroll: bool | None = None) -> None:
         """根据当前会话消息重建聊天消息列表。"""
         message_list = self.query_one("#message_list", Vertical)
+        if auto_scroll is None:
+            auto_scroll = self._chat_should_auto_scroll()
         message_list.remove_children()
 
         for message in self.session.messages:
@@ -146,7 +151,8 @@ class ClaudeCodeThyApp(App[None]):
             if renderable is not None:
                 message_list.mount(Static(renderable, classes="message"))
 
-        self._scroll_chat_end()
+        if auto_scroll:
+            self._scroll_chat_end()
 
     def _render_resume_hint(self) -> None:
         """刷新底部的会话恢复命令提示。"""
@@ -155,12 +161,10 @@ class ClaudeCodeThyApp(App[None]):
             f"claude-code-thy --resume {self.session.session_id}"
         )
         self.query_one("#resume_hint", Static).update(Text(hint, style="#9aa4b2"))
-        self._scroll_chat_end()
 
     def _set_tool_status(self, text: str) -> None:
         """更新底部工具状态栏文本。"""
         self.query_one("#tool_status", Static).update(Text(text, style="#9aa4b2"))
-        self._scroll_chat_end()
 
     def _update_tool_status_from_messages(self) -> None:
         """根据最新消息和后台任务状态推导状态栏内容。"""
@@ -236,6 +240,11 @@ class ClaudeCodeThyApp(App[None]):
     def _scroll_chat_end(self) -> None:
         """把聊天区域滚动到最新一条消息。"""
         self.query_one("#chat_surface", VerticalScroll).scroll_end(animate=False)
+
+    def _chat_should_auto_scroll(self) -> bool:
+        """只有用户当前贴近底部时，才保持聊天区自动粘底。"""
+        chat_surface = self.query_one("#chat_surface", VerticalScroll)
+        return chat_surface.max_scroll_y - chat_surface.scroll_offset.y <= 1
 
     def _build_hero_panel(self) -> RenderableType:
         """构造顶部欢迎区，包含模型、路径和最近活动提示。"""
