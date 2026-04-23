@@ -21,8 +21,65 @@ class EchoProvider(Provider):
         )
 
 
-def test_inline_skill_slash_command_submits_expanded_prompt(tmp_path):
-    """测试 `inline_skill_slash_command_submits_expanded_prompt` 场景。"""
+def test_explicit_skill_slash_command_submits_expanded_prompt(tmp_path):
+    """测试 `/skill <name> ...` 会展开 skill 并提交给主链模型。"""
+    skill_dir = tmp_path / ".claude-code-thy" / "skills" / "review"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\n"
+        "description: Review a topic\n"
+        "arguments:\n"
+        "  - topic\n"
+        "---\n"
+        "Please review ${topic} carefully.\n",
+        encoding="utf-8",
+    )
+
+    store = SessionStore(root_dir=tmp_path / "sessions")
+    runtime = ConversationRuntime(provider=EchoProvider(), session_store=store)
+    session = store.create(cwd=str(tmp_path), model="dummy", provider_name="echo")
+    store.save(session)
+
+    outcome = asyncio.run(runtime.handle(session, "/skill review auth-flow"))
+
+    assert outcome.session.messages[0].role == "user"
+    assert "Please review auth-flow carefully." in outcome.session.messages[0].text
+    assert outcome.session.messages[1].text.startswith("echo:Base directory for this skill:")
+    assert "Please review auth-flow carefully." in outcome.session.messages[1].text
+
+
+def test_context_fork_skill_now_runs_inline_via_explicit_skill_command(tmp_path):
+    """测试旧的 `context: fork` frontmatter 会被忽略，并通过 `/skill` 正常 inline 执行。"""
+    skill_dir = tmp_path / ".claude-code-thy" / "skills" / "inspect"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\n"
+        "description: Inspect a target\n"
+        "arguments:\n"
+        "  - target\n"
+        "context: fork\n"
+        "agent: general-purpose\n"
+        "effort: high\n"
+        "---\n"
+        "Please inspect ${target} carefully.\n",
+        encoding="utf-8",
+    )
+
+    store = SessionStore(root_dir=tmp_path / "sessions")
+    runtime = ConversationRuntime(provider=EchoProvider(), session_store=store)
+    session = store.create(cwd=str(tmp_path), model="dummy", provider_name="echo")
+    store.save(session)
+
+    outcome = asyncio.run(runtime.handle(session, "/skill inspect build"))
+
+    assert outcome.session.messages[0].role == "user"
+    assert "Please inspect build carefully." in outcome.session.messages[0].text
+    assert outcome.session.messages[1].text.startswith("echo:Base directory for this skill:")
+    assert "Please inspect build carefully." in outcome.session.messages[1].text
+
+
+def test_single_skill_slash_command_is_not_supported(tmp_path):
+    """测试 `/<skill名>` 这条隐式 slash 通路不再对用户开放。"""
     skill_dir = tmp_path / ".claude-code-thy" / "skills" / "review"
     skill_dir.mkdir(parents=True)
     (skill_dir / "SKILL.md").write_text(
@@ -42,10 +99,7 @@ def test_inline_skill_slash_command_submits_expanded_prompt(tmp_path):
 
     outcome = asyncio.run(runtime.handle(session, "/review auth-flow"))
 
-    assert outcome.session.messages[0].role == "user"
-    assert "Please review auth-flow carefully." in outcome.session.messages[0].text
-    assert outcome.session.messages[1].text.startswith("echo:Base directory for this skill:")
-    assert "Please review auth-flow carefully." in outcome.session.messages[1].text
+    assert "暂不支持命令 `/review`" in outcome.session.messages[-1].text
 
 
 def test_old_dot_claude_skills_path_is_not_loaded_by_default(tmp_path):
@@ -166,3 +220,62 @@ def test_skill_tool_executes_mcp_skill_from_registry(tmp_path):
 
     assert result.ok is True
     assert "Review oauth from MCP." in result.output
+
+
+def test_skill_frontmatter_paths_does_not_hide_command(tmp_path):
+    """测试 `paths` frontmatter 已被忽略，不再影响 skill 是否可见。"""
+    skill_dir = tmp_path / ".claude-code-thy" / "skills" / "python-review"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\n"
+        "description: Review Python files\n"
+        "paths:\n"
+        "  - src/*.py\n"
+        "---\n"
+        "Review ${args}.\n",
+        encoding="utf-8",
+    )
+
+    store = SessionStore(root_dir=tmp_path / "sessions")
+    runtime = ConversationRuntime(provider=EchoProvider(), session_store=store)
+    session = store.create(cwd=str(tmp_path), model="dummy", provider_name="echo")
+    store.save(session)
+    services = runtime.tool_runtime.services_for(session)
+
+    commands = services.command_registry.list_user_commands(session, services)
+
+    assert any(command.name == "python-review" for command in commands)
+
+
+def test_reading_file_no_longer_discovers_parent_skill_dir(tmp_path):
+    """测试读取文件后，不会再按父目录自动发现工作区里的散落 skill。"""
+    feature_dir = tmp_path / "feature"
+    feature_dir.mkdir()
+    (feature_dir / "SKILL.md").write_text(
+        "---\n"
+        "description: Hidden parent skill\n"
+        "---\n"
+        "Inspect feature files.\n",
+        encoding="utf-8",
+    )
+    (feature_dir / "note.txt").write_text("hello\n", encoding="utf-8")
+
+    store = SessionStore(root_dir=tmp_path / "sessions")
+    runtime = ConversationRuntime(provider=EchoProvider(), session_store=store)
+    session = store.create(cwd=str(tmp_path), model="dummy", provider_name="echo")
+    store.save(session)
+    services = runtime.tool_runtime.services_for(session)
+
+    before = services.command_registry.list_user_commands(session, services)
+    assert all(command.name != "feature" for command in before)
+
+    result = runtime.tool_runtime.execute_input(
+        "read",
+        {"file_path": "feature/note.txt"},
+        session,
+    )
+
+    assert result.ok is True
+
+    after = services.command_registry.list_user_commands(session, services)
+    assert all(command.name != "feature" for command in after)

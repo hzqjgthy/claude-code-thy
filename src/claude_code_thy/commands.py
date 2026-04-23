@@ -11,6 +11,7 @@ from claude_code_thy.models import SessionTranscript
 from claude_code_thy.permissions import PermissionRequest
 from claude_code_thy.session.runtime_state import clear_pending_permission, set_pending_permission
 from claude_code_thy.session.store import SessionStore, SessionSummary
+from claude_code_thy.tools.SkillTool import resolve_skill_prompt
 from claude_code_thy.tools import PermissionRequiredError, ToolError, ToolEventHandler, ToolRuntime
 
 
@@ -97,6 +98,8 @@ class CommandProcessor:
             return self._run_tool(session, "glob", raw_args, event_handler=event_handler)
         if command == "/grep":
             return self._run_tool(session, "grep", raw_args, event_handler=event_handler)
+        if command == "/skill":
+            return self._run_skill_command(session, raw_args)
         if command == "/clear":
             session.clear_messages()
             self.session_store.save(session)
@@ -130,7 +133,7 @@ class CommandProcessor:
 
         return self._append_message(
             session,
-            f"暂不支持命令 `{command}`。\n\n可用命令：/help /status /sessions /resume /model /tools /skills /mcp /tasks /agents /agent /agent-run /agent-wait /task-stop /task-output /bash /read /write /edit /glob /grep /init /clear",
+            f"暂不支持命令 `{command}`。\n\n可用命令：/help /status /sessions /resume /model /tools /skills /mcp /tasks /agents /agent /agent-run /agent-wait /task-stop /task-output /bash /read /write /edit /glob /grep /skill /init /clear",
         )
 
     def resume_pending_permission(
@@ -344,6 +347,7 @@ class CommandProcessor:
             "/edit      按 old/new 规则编辑文件\n"
             "/glob      按 pattern 查找文件\n"
             "/grep      搜索文本\n"
+            "/skill     显式执行一个 skill\n"
             "/init      在当前目录创建 CLAUDE.md\n"
             "/clear     清空当前会话消息"
         )
@@ -496,8 +500,10 @@ class CommandProcessor:
             return "当前没有可用 skills。"
         lines = ["可用 skills / prompt commands："]
         for command in commands:
-            suffix = f" [{command.execution_context}]" if command.execution_context != "inline" else ""
-            lines.append(f"- /{command.name}{suffix}: {command.description}")
+            if command.kind == "mcp_prompt":
+                lines.append(f"- /{command.name}: {command.description}")
+                continue
+            lines.append(f"- /skill {command.name}: {command.description}")
         return "\n".join(lines)
 
     def _agents_text(self, session: SessionTranscript) -> str:
@@ -683,7 +689,7 @@ class CommandProcessor:
         *,
         event_handler: ToolEventHandler | None = None,
     ) -> CommandOutcome | None:
-        """执行统一命令模型里的 prompt command，包括本地 skill 与 MCP prompt。"""
+        """执行仍允许直接 slash 调用的 prompt command，目前主要是 MCP prompt。"""
         services = self.tool_runtime.services_for(session)
         if command.startswith("/mcp__"):
             try:
@@ -693,13 +699,8 @@ class CommandProcessor:
         prompt_command = services.command_registry.find_user_command(session, services, command)
         if prompt_command is None:
             return None
-        if prompt_command.execution_context == "fork":
-            return self.run_tool_input(
-                session,
-                "skill",
-                {"skill": prompt_command.name, "args": raw_args},
-                event_handler=event_handler,
-            )
+        if prompt_command.kind != "mcp_prompt":
+            return None
         rendered = services.command_registry.render_prompt(
             prompt_command,
             raw_args,
@@ -708,6 +709,45 @@ class CommandProcessor:
         ).strip()
         if not rendered:
             return self._append_message(session, f"命令 `{prompt_command.name}` 没有生成文本内容。")
+        return CommandOutcome(
+            session=session,
+            submit_prompt=rendered,
+            model_override=prompt_command.model,
+        )
+
+    def _run_skill_command(
+        self,
+        session: SessionTranscript,
+        raw_args: str,
+    ) -> CommandOutcome:
+        """执行显式用户入口 `/skill <skill_name> [args]`。"""
+        text = raw_args.strip()
+        if not text:
+            return self._append_message(session, "用法：/skill <skill_name> [args]")
+
+        skill_name, _, skill_args = text.partition(" ")
+        skill_name = skill_name.strip()
+        skill_args = skill_args.strip()
+        if not skill_name:
+            return self._append_message(session, "用法：/skill <skill_name> [args]")
+
+        services = self.tool_runtime.services_for(session)
+        try:
+            run_async_sync(services.mcp_manager.refresh_all())
+        except Exception:
+            pass
+        try:
+            prompt_command, rendered = resolve_skill_prompt(
+                session,
+                services,
+                skill_name,
+                skill_args,
+                user_invoked=True,
+            )
+        except ToolError as error:
+            return self._append_message(session, str(error))
+        if not rendered:
+            return self._append_message(session, f"skill `{prompt_command.name}` 没有生成文本内容。")
         return CommandOutcome(
             session=session,
             submit_prompt=rendered,

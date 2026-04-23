@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import fnmatch
 import shlex
 from pathlib import Path
 
@@ -72,7 +71,7 @@ class PromptCommandRegistry:
         session: SessionTranscript,
         services,
     ) -> str:
-        """把统一命令对象渲染成真正要提交给模型或 agent 的 prompt 文本。"""
+        """把统一命令对象渲染成真正要提交给模型的 prompt 文本。"""
         if command.kind == "mcp_prompt":
             if not command.server_name or not command.original_name:
                 return ""
@@ -113,8 +112,7 @@ class PromptCommandRegistry:
             return "No skills available."
         lines: list[str] = []
         for command in commands[:limit]:
-            suffix = f" ({command.execution_context})" if command.execution_context != "inline" else ""
-            lines.append(f"- {command.name}{suffix}: {command.description}")
+            lines.append(f"- {command.name}: {command.description}")
         if len(commands) > limit:
             lines.append(f"- ... and {len(commands) - limit} more")
         return "\n".join(lines)
@@ -127,8 +125,7 @@ class PromptCommandRegistry:
         include_mcp_prompts: bool,
     ) -> list[PromptCommandSpec]:
         """合并本地命令、MCP prompt 和 MCP skill，并按名称去重。"""
-        state = services.command_state_for_session(session.session_id)
-        local_commands = self._list_local_commands(state.skill_dirs, state.touched_paths)
+        local_commands = self._list_local_commands()
         deduped: dict[str, PromptCommandSpec] = {command.name: command for command in local_commands}
 
         if include_mcp_prompts:
@@ -158,31 +155,13 @@ class PromptCommandRegistry:
             return list(cached())
         return []
 
-    def _list_local_commands(
-        self,
-        skill_dirs: set[str],
-        touched_paths: set[str],
-    ) -> list[PromptCommandSpec]:
-        """从默认 roots、配置 roots 和按路径发现的目录中收集本地命令。"""
+    def _list_local_commands(self) -> list[PromptCommandSpec]:
+        """从默认 roots 和配置 roots 中收集本地命令。"""
         command_map: dict[str, PromptCommandSpec] = {}
 
         for root_dir in self._local_root_dirs():
             for loaded in self.loader.load_from_skill_root(root_dir):
-                if self._include_command(loaded.command, touched_paths):
-                    command_map.setdefault(loaded.command.name, loaded.command)
-
-        discovered_dirs = sorted(
-            {Path(path).resolve() for path in skill_dirs},
-            key=lambda path: len(path.parts),
-            reverse=True,
-        )
-        for skill_dir in discovered_dirs:
-            loaded = self.loader.load_from_skill_dir(skill_dir)
-            if loaded is None:
-                continue
-            if not self._include_command(loaded.command, touched_paths):
-                continue
-            command_map[loaded.command.name] = loaded.command
+                command_map.setdefault(loaded.command.name, loaded.command)
 
         return [command_map[name] for name in sorted(command_map)]
 
@@ -205,27 +184,6 @@ class PromptCommandRegistry:
             seen.add(key)
             deduped.append(root)
         return deduped
-
-    def _include_command(
-        self,
-        command: PromptCommandSpec,
-        touched_paths: set[str],
-    ) -> bool:
-        """根据命令声明的 `paths` 规则决定当前会话是否应显示它。"""
-        if not command.paths:
-            return True
-        for touched in touched_paths:
-            relative = self._relative_path(Path(touched))
-            if any(fnmatch.fnmatch(relative, pattern) for pattern in command.paths):
-                return True
-        return False
-
-    def _relative_path(self, path: Path) -> str:
-        """尽量把路径转换成相对工作区的形式以便参与匹配。"""
-        try:
-            return str(path.resolve().relative_to(self.workspace_root))
-        except ValueError:
-            return str(path.resolve())
 
     def _substitute_arguments(
         self,

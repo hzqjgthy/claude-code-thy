@@ -26,19 +26,6 @@ class SkillLoader:
         self.workspace_root = workspace_root.resolve()
         self._cache: dict[tuple[str, str], tuple[int, SkillLoadResult]] = {}
 
-    def load_from_skill_dir(self, skill_dir: Path) -> SkillLoadResult | None:
-        """把一个 skill 目录中的 `SKILL.md` 解析成命令定义。"""
-        skill_dir = skill_dir.resolve()
-        skill_file = skill_dir / "SKILL.md"
-        if not skill_file.exists():
-            return None
-        command_name = skill_dir.name
-        return self._load_skill_file(
-            skill_file,
-            command_name=command_name,
-            skill_root=skill_dir,
-        )
-
     def load_from_skill_root(self, root_dir: Path) -> list[SkillLoadResult]:
         """递归扫描一个 skills 根目录，加载其中所有 `SKILL.md`。"""
         root_dir = root_dir.resolve()
@@ -83,8 +70,6 @@ class SkillLoader:
         metadata = document.metadata
         content = document.content.strip()
         description = str(metadata.get("description") or "").strip() or extract_description_from_markdown(content)
-        display_name = str(metadata.get("name") or "").strip() or None
-        execution_context = "fork" if str(metadata.get("context", "")).strip().lower() == "fork" else "inline"
         command = PromptCommandSpec(
             name=command_name,
             description=description,
@@ -94,17 +79,10 @@ class SkillLoader:
             content_length=len(content),
             content=content,
             arg_names=parse_string_list(metadata.get("arguments")),
-            allowed_tools=parse_string_list(metadata.get("allowed-tools")),
-            when_to_use=str(metadata.get("when-to-use") or metadata.get("when_to_use") or "").strip() or None,
             version=str(metadata.get("version") or "").strip() or None,
             model=str(metadata.get("model") or "").strip() or None,
             disable_model_invocation=parse_bool(metadata.get("disable-model-invocation"), default=False),
             user_invocable=parse_bool(metadata.get("user-invocable"), default=True),
-            execution_context=execution_context,
-            agent=str(metadata.get("agent") or "").strip() or None,
-            effort=str(metadata.get("effort") or "").strip() or None,
-            paths=parse_string_list(metadata.get("paths")),
-            display_name=display_name,
             skill_root=str(skill_root),
             metadata={"file_path": str(skill_file)},
         )

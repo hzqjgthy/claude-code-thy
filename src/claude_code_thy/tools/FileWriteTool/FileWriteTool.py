@@ -151,7 +151,6 @@ class WriteTool(Tool):
     def _write(self, context: ToolContext, *, file_path: str, content: str) -> ToolResult:
         """写入 当前流程。"""
         path = _resolve_path(context, file_path, allow_missing=True, tool_name=self.name)
-        context.discover_skills_for_paths([path])
         if path.exists() and path.is_dir():
             raise ToolError(f"目标是目录，不是文件：{file_path}")
         check_secret_like_content(path, content)

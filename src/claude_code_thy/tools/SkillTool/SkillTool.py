@@ -1,16 +1,14 @@
 from __future__ import annotations
 
-from claude_code_thy.tools.AgentTool import AgentTool
 from claude_code_thy.tools.base import Tool, ToolContext, ToolError, ToolResult, ToolSpec
 
-from .prompt import DESCRIPTION, USAGE
+from .prompt import DESCRIPTION
 
 
 class SkillTool(Tool):
     """实现 `Skill` 工具。"""
     name = "skill"
     description = DESCRIPTION
-    usage = USAGE
     input_schema = {
         "type": "object",
         "properties": {
@@ -20,21 +18,13 @@ class SkillTool(Tool):
         "required": ["skill"],
     }
 
-    def parse_raw_input(self, raw_args: str, context: ToolContext) -> dict[str, object]:
-        """解析 `raw_input`。"""
-        _ = context
-        text = raw_args.strip()
-        if not text:
-            raise ToolError("用法：/skill <skill_name> [args]")
-        skill_name, _, args = text.partition(" ")
-        return {"skill": skill_name.strip(), "args": args.strip()}
-
     def execute(self, raw_args: str, context: ToolContext) -> ToolResult:
-        """执行当前流程。"""
-        return self.execute_input(self.parse_raw_input(raw_args, context), context)
+        """阻止用户以原始字符串参数直接调用 `skill` 工具。"""
+        _ = (raw_args, context)
+        raise ToolError("工具 `skill` 不支持字符串参数执行")
 
     def execute_input(self, input_data: dict[str, object], context: ToolContext) -> ToolResult:
-        """执行 `input`。"""
+        """处理模型侧结构化 `skill` 工具调用。"""
         if context.services is None:
             raise ToolError("Skill registry is unavailable")
 
@@ -44,45 +34,29 @@ class SkillTool(Tool):
             raise ToolError("tool input 缺少 skill")
 
         session = context.services.command_session_for(context.session_id)
-        command = context.services.command_registry.find_model_command(
+        command, prompt = resolve_skill_prompt(
             session,
             context.services,
             skill_name,
-        )
-        if command is None:
-            available = context.services.command_registry.describe_model_commands(session, context.services)
-            raise ToolError(f"未找到 skill：{skill_name}\n\n可用 skills:\n{available}")
-
-        prompt = context.services.command_registry.render_prompt(
-            command,
             raw_args,
-            session,
-            context.services,
+            user_invoked=False,
         )
-        if not prompt.strip():
-            raise ToolError(f"skill `{skill_name}` 没有生成可执行内容")
-
-        if command.execution_context == "fork":
-            return self._execute_forked(command, prompt, context)
 
         return ToolResult(
             tool_name=self.name,
             ok=True,
-            summary=f"Skill inline: {command.name}",
+            summary=f"Skill: {command.name}",
             display_name="Skill",
             ui_kind="skill",
             output=prompt,
             metadata={
                 "command_name": command.name,
                 "loaded_from": command.loaded_from,
-                "execution_context": command.execution_context,
             },
             structured_data={
                 "command_name": command.name,
                 "loaded_from": command.loaded_from,
-                "execution_context": command.execution_context,
                 "prompt": prompt,
-                "allowed_tools": list(command.allowed_tools),
             },
             tool_result_content=prompt,
         )
@@ -105,27 +79,53 @@ class SkillTool(Tool):
             search_behavior=self.search_behavior(),
         )
 
-    def _execute_forked(self, command, prompt: str, context: ToolContext) -> ToolResult:
-        """执行 `forked`。"""
-        agent_prompt = self._decorate_fork_prompt(command, prompt)
-        return AgentTool().execute_input(
-            {
-                "prompt": agent_prompt,
-                "description": f"Skill: {command.name}",
-                "model": command.model,
-                "run_in_background": False,
-            },
-            context,
-        )
 
-    def _decorate_fork_prompt(self, command, prompt: str) -> str:
-        """处理 `decorate_fork_prompt`。"""
-        lines = [prompt.strip()]
-        if command.allowed_tools:
-            lines.append("")
-            lines.append("Recommended tools for this skill:")
-            lines.extend(f"- {name}" for name in command.allowed_tools)
-        if command.effort:
-            lines.append("")
-            lines.append(f"Recommended effort: {command.effort}")
-        return "\n".join(line for line in lines if line is not None)
+def describe_user_skills(session, services) -> str:
+    """返回用户当前可显式执行的 skill 列表，不包含 MCP prompt。"""
+    lines = [
+        f"- {spec.name}: {spec.description}"
+        for spec in services.command_registry.list_user_commands(session, services)
+        if spec.kind != "mcp_prompt"
+    ]
+    return "\n".join(lines) or "当前没有可用 skills。"
+
+
+def resolve_skill_prompt(
+    session,
+    services,
+    skill_name: str,
+    raw_args: str,
+    *,
+    user_invoked: bool,
+):
+    """按调用来源解析目标 skill，并渲染出最终 prompt 文本。"""
+    if user_invoked:
+        command = next(
+            (
+                spec
+                for spec in services.command_registry.list_user_commands(session, services)
+                if spec.kind != "mcp_prompt" and spec.name == skill_name
+            ),
+            None,
+        )
+        available = describe_user_skills(session, services)
+    else:
+        command = services.command_registry.find_model_command(
+            session,
+            services,
+            skill_name,
+        )
+        available = services.command_registry.describe_model_commands(session, services)
+
+    if command is None:
+        raise ToolError(f"未找到 skill：{skill_name}\n\n可用 skills:\n{available}")
+
+    prompt = services.command_registry.render_prompt(
+        command,
+        raw_args,
+        session,
+        services,
+    )
+    if not prompt.strip():
+        raise ToolError(f"skill `{skill_name}` 没有生成可执行内容")
+    return command, prompt

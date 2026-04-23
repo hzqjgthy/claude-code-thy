@@ -44,18 +44,10 @@ class FileHistorySettings:
 
 
 @dataclass(slots=True)
-class SkillTrigger:
-    """声明某类路径命中后应额外启用哪个 skill 目录。"""
-    pattern: str
-    skill_dir: str
-
-
-@dataclass(slots=True)
 class SkillsSettings:
-    """保存本地 skills 搜索根目录和触发规则。"""
+    """保存本地 skills 搜索根目录。"""
     enabled: bool = True
     search_roots: tuple[str, ...] = ()
-    triggers: tuple[SkillTrigger, ...] = ()
 
 
 @dataclass(slots=True)
@@ -176,8 +168,6 @@ def validate_settings_document(data: object) -> list[str]:
                 errors.append("skills.enabled 必须是布尔值。")
             if "search_roots" in skills and not isinstance(skills["search_roots"], list):
                 errors.append("skills.search_roots 必须是数组。")
-            if "triggers" in skills and not isinstance(skills["triggers"], list):
-                errors.append("skills.triggers 必须是数组。")
 
     lsp = data.get("lsp")
     if lsp is not None:
@@ -357,21 +347,9 @@ def _load_skills_settings(value: object) -> SkillsSettings:
     """从原始 JSON 片段构造本地 skills 配置。"""
     if not isinstance(value, dict):
         return SkillsSettings()
-    triggers_raw = value.get("triggers", [])
-    triggers: list[SkillTrigger] = []
-    if isinstance(triggers_raw, list):
-        for item in triggers_raw:
-            if not isinstance(item, dict):
-                continue
-            pattern = str(item.get("pattern", "")).strip()
-            skill_dir = str(item.get("skill_dir", "")).strip()
-            if not pattern or not skill_dir:
-                continue
-            triggers.append(SkillTrigger(pattern=pattern, skill_dir=skill_dir))
     return SkillsSettings(
         enabled=bool(value.get("enabled", True)),
         search_roots=_load_tuple(value.get("search_roots"), default=()),
-        triggers=tuple(triggers),
     )
 
 

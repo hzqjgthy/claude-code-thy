@@ -130,7 +130,6 @@ class ReadTool(Tool):
     ) -> ToolResult:
         """读取 当前流程。"""
         path = _resolve_path(context, file_path, tool_name=self.name)
-        context.discover_skills_for_paths([path])
         if not path.exists():
             raise _missing_path_error(context, file_path)
         if path.is_dir():

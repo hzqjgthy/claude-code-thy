@@ -249,7 +249,7 @@ class ToolRuntime:
         state = self._session_states.setdefault(session.session_id, RuntimeSessionState())
         if state.services is None:
             state.services = build_tool_services(cwd)
-        state.services.register_session(session, state)
+        state.services.register_session(session)
         state.approved_permissions = {
             str(item)
             for item in session.runtime_state.get("approved_permissions", [])

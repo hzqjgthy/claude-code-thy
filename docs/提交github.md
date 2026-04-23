@@ -30,5 +30,10 @@ git push -u origin main --force
 
 
 
-export https_proxy=http://127.0.0.1:7890                 
+
+# 临时启用代理（仅当前终端会话）
+export https_proxy=http://127.0.0.1:7890
 export http_proxy=http://127.0.0.1:7890
+
+# 取消代理
+unset https_proxy http_proxy

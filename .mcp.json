@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "xiaohongshu-mcp": {
+      "type": "http",
+      "url": "http://localhost:18060/mcp",
+      "description": "小红书 MCP"
+    },
+    "self_mcp": {
+      "type": "stdio",
+      "description": "loopback stdio server",
+      "command": "claude-code-thy",
+      "args": [
+        "mcp",
+        "serve"
+      ]
+    }
+  }
+}

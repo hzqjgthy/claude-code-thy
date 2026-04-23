@@ -60,8 +60,6 @@ class RuntimeSessionState:
     """保存工具运行中需要跨多次调用复用的会话级状态。"""
     read_file_state: dict[str, FileReadState] = field(default_factory=dict)
     services: ToolServices | None = None
-    skill_dirs: set[str] = field(default_factory=set)
-    touched_paths: set[str] = field(default_factory=set)
     approved_permissions: set[str] = field(default_factory=set)
 
 
@@ -278,16 +276,6 @@ class ToolContext:
         """返回当前会话累积的文件读取缓存。"""
         return self.state.read_file_state
 
-    @property
-    def skill_dirs(self) -> set[str]:
-        """返回当前会话已经发现过的 skill 目录集合。"""
-        return self.state.skill_dirs
-
-    @property
-    def touched_paths(self) -> set[str]:
-        """返回当前会话中被工具接触过的文件路径集合。"""
-        return self.state.touched_paths
-
     def emit(
         self,
         tool_name: str,
@@ -309,16 +297,6 @@ class ToolContext:
                 metadata=metadata or {},
             )
         )
-
-    def discover_skills_for_paths(self, paths: list[Path]) -> tuple[str, ...]:
-        """根据本次涉及的路径补充可用 skill，并把结果写入会话状态。"""
-        if self.services is None:
-            return ()
-        result = self.services.skill_manager.discover_for_paths(paths)
-        self.state.skill_dirs.update(result.discovered_dirs)
-        self.state.touched_paths.update(str(path.resolve()) for path in paths)
-        return result.discovered_dirs
-
 
 @dataclass(slots=True)
 class ToolSpec:

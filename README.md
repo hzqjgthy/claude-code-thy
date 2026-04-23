@@ -118,25 +118,17 @@
 - 本地 `SKILL.md` 会解析成统一的 prompt command 模型
 - 本地 skill 与 MCP prompt / MCP skill 共用同一套 registry
 - inline skill 会把展开后的 prompt 注入主对话
-- fork skill 会复用现有 agent/background 能力
 - 模型可通过 `skill` 工具调用可模型调用的 skills
 - 用户可通过 slash 直接执行用户可见的 skills
 
 当前支持的 `SKILL.md` frontmatter 字段包括：
 
 - `description`
-- `when_to_use`
 - `arguments`
-- `allowed-tools`
 - `disable-model-invocation`
 - `user-invocable`
-- `context: fork`
-- `agent`
-- `effort`
-- `paths`
 - `model`
 - `version`
-- `name`
 
 ### 7. MCP 子系统
 
@@ -185,7 +177,7 @@
 - 已批准权限记忆
 - sandbox policy
 - file history
-- skill 发现触发记录
+- 本地 skill 固定 roots 扫描
 - 基础 LSP 文件通知
 
 ## 项目结构
@@ -340,24 +332,17 @@ CLAUDE_CODE_THY_MAX_TOKENS=4096
 description: Review a topic carefully
 arguments:
   - topic
-allowed-tools:
-  - read
-  - grep
-when_to_use: Use this when you need a focused review workflow
 user-invocable: true
 ---
 
 Please review ${topic} carefully and summarize the risks.
 ```
 
-一个 fork skill 示例：
+另一个本地 skill 示例：
 
 ```md
 ---
-description: Run this skill in a sub-agent
-context: fork
-agent: general-purpose
-effort: high
+description: Investigate the workspace and return a concise report
 ---
 
 Investigate the workspace and return a concise report.

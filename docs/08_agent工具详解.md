@@ -11,7 +11,6 @@
 - 启动一个本地子 agent 来处理任务
 - 可以前台等待结果
 - 也可以转成后台任务
-- 还能作为 `skill context: fork` 的执行基础
 
 ## 1. agent 工具在系统里的定位
 
@@ -100,25 +99,6 @@
 - 根据 `task_id`
 - 到后台任务系统里轮询状态
 - 读取输出文件
-
-### 3.4 `skill context: fork`
-
-这个点很关键。
-
-当某个 skill 是：
-
-```yaml
-context: fork
-```
-
-它最终不是自己发明一套“fork skill 执行器”，而是：
-
-- 先把 skill 渲染成 prompt
-- 再调用 `AgentTool().execute_input(...)`
-
-所以：
-
-- `fork skill` 的底层执行能力，就是 `agent` 工具
 
 ## 4. agent 工具的输入结构
 
@@ -416,23 +396,14 @@ agent 只是其中一种任务类型。
 
 ## 12. agent 工具和 skill 系统的关系
 
-当前项目里，`SkillTool` 遇到：
+当前版本里，`agent` 和 `skill` 是两条彼此独立的能力链：
 
-```yaml
-context: fork
-```
-
-时，不是自己独立执行，而是直接复用 `AgentTool`。
-
-这意味着：
-
-- `agent` 工具是 fork skill 的底层执行器
-- skill 的 fork 能力，本质上依赖 agent
+- `agent` 负责启动本地子任务
+- `skill` 负责生成并注入技能提示
 
 从架构地位上看，`AgentTool` 已经不只是一个普通工具，而是：
 
 - 本地子任务执行底座
-- fork skill 的运行底座
 
 ## 13. 主链 agent 能不能调用 agent 工具
 
@@ -476,7 +447,6 @@ context: fork
 - 复用现有 CLI
 - 复用后台任务系统
 - 复用 UI 通知系统
-- 复用 skill fork 机制
 
 ### 14.2 调试路径直观
 
@@ -486,10 +456,6 @@ context: fork
 - 输出看 `.output`
 - 启动入口看 launcher
 
-### 14.3 和 skill fork 结合自然
-
-现在 `context: fork` 不是平行的另一套逻辑，而是直接落到 `agent` 工具上，这个设计是比较统一的。
-
 ## 15. 当前实现的不足
 
 ### 15.1 它不是轻量子 agent
@@ -498,9 +464,9 @@ context: fork
 
 - 再起一个本地 CLI 进程
 
-所以它不是“进程内轻量 fork”，而是：
+所以它不是“同进程轻量执行”，而是：
 
-- 进程级 fork
+- 新建独立进程执行
 
 ### 15.2 没有硬能力隔离
 
@@ -584,7 +550,7 @@ Agent: <prompt前48字符>
 
 它的短板也很明显：
 
-- 不是轻量 fork
+- 不是轻量级同进程执行
 - 没有硬限制
 - agent 递归边界还没收住
 
@@ -593,6 +559,5 @@ Agent: <prompt前48字符>
 - `/agent`
 - `/agent-run`
 - `/agent-wait`
-- `skill context: fork`
 
 实际上都建立在这套能力之上。

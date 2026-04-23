@@ -26,7 +26,6 @@ def build_mcp_prompt_specs(
             user_invocable=True,
             disable_model_invocation=True,
             arg_names=tuple(prompt.arguments),
-            display_name=f"{server_name}:{prompt.name}",
             server_name=server_name,
             original_name=prompt.name,
         )
@@ -71,21 +70,10 @@ def build_mcp_skill_spec(
         content_length=len(markdown),
         content=markdown,
         arg_names=parse_string_list(metadata.get("arguments")),
-        allowed_tools=parse_string_list(metadata.get("allowed-tools")),
-        when_to_use=str(metadata.get("when-to-use") or metadata.get("when_to_use") or "").strip() or None,
         version=str(metadata.get("version") or "").strip() or None,
         model=str(metadata.get("model") or "").strip() or None,
         disable_model_invocation=str(metadata.get("disable-model-invocation", "")).strip().lower() == "true",
         user_invocable=str(metadata.get("user-invocable", "true")).strip().lower() != "false",
-        execution_context=(
-            "fork"
-            if str(metadata.get("context", "")).strip().lower() == "fork"
-            else "inline"
-        ),
-        agent=str(metadata.get("agent") or "").strip() or None,
-        effort=str(metadata.get("effort") or "").strip() or None,
-        paths=parse_string_list(metadata.get("paths")),
-        display_name=str(metadata.get("name") or "").strip() or skill_name,
         server_name=server_name,
         original_name=resource.name,
         resource_uri=resource.uri,

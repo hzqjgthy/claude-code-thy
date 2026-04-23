@@ -219,7 +219,6 @@ class EditTool(Tool):
     ) -> ToolResult:
         """编辑 当前流程。"""
         path = _resolve_path(context, file_path, allow_missing=True, tool_name=self.name)
-        context.discover_skills_for_paths([path])
         for edit in edits:
             check_secret_like_content(path, edit.new_string)
         if path.exists() and path.is_dir():

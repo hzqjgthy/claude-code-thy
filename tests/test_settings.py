@@ -44,9 +44,7 @@ def test_load_for_workspace_merges_settings_json_and_local(tmp_path):
                     }
                 ],
                 "skills": {
-                    "triggers": [
-                        {"pattern": "src/*.py", "skill_dir": "skills-local/python-review"}
-                    ]
+                    "search_roots": ["skills-local"]
                 },
                 "mcp": {
                     "servers": {
@@ -62,8 +60,7 @@ def test_load_for_workspace_merges_settings_json_and_local(tmp_path):
     settings = AppSettings.load_for_workspace(tmp_path)
 
     assert [rule.pattern for rule in settings.permission_rules] == ["rm *", "echo permission-test"]
-    assert settings.skills.search_roots == ("skills-base",)
-    assert settings.skills.triggers[0].pattern == "src/*.py"
+    assert settings.skills.search_roots == ("skills-base", "skills-local")
     assert set(settings.mcp.servers) == {"base", "local"}
 
 
