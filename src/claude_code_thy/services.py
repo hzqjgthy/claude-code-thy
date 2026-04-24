@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from claude_code_thy.browser import BrowserManager
 from claude_code_thy.file_history import FileHistoryStore
 from claude_code_thy.lsp import LspManager
 from claude_code_thy.mcp import McpRuntimeManager
@@ -27,6 +28,7 @@ class ToolServices:
     task_manager: BackgroundTaskManager
     file_history: FileHistoryStore
     command_registry: PromptCommandRegistry
+    browser_manager: BrowserManager
     lsp_manager: LspManager
     mcp_manager: McpRuntimeManager
     _sessions: dict[str, "SessionTranscript"] = field(default_factory=dict, repr=False)
@@ -51,6 +53,7 @@ def build_tool_services(workspace_root: Path) -> ToolServices:
         task_manager=BackgroundTaskManager(workspace_root, settings.tasks),
         file_history=FileHistoryStore(workspace_root, settings.file_history),
         command_registry=PromptCommandRegistry(workspace_root, settings.skills),
+        browser_manager=BrowserManager(workspace_root, settings.browser),
         lsp_manager=LspManager(workspace_root, settings.lsp),
         mcp_manager=McpRuntimeManager(workspace_root, settings),
     )

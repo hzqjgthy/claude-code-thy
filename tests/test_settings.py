@@ -119,3 +119,54 @@ def test_load_for_workspace_ignores_invalid_base_and_uses_valid_local(tmp_path):
 
     assert len(settings.permission_rules) == 1
     assert settings.permission_rules[0].pattern == "secret/*"
+
+
+def test_load_for_workspace_supports_browser_settings(tmp_path):
+    """测试浏览器配置会被正确加载。"""
+    settings_dir = tmp_path / ".claude-code-thy"
+    settings_dir.mkdir()
+    (settings_dir / "settings.json").write_text(
+        json.dumps(
+            {
+                "browser": {
+                    "enabled": True,
+                    "headless": False,
+                    "launch_timeout_ms": 22222,
+                    "snapshot_max_chars": 4321
+                },
+                "browser_search": {
+                    "enabled": True,
+                    "default_search_engine": "searxng",
+                    "search_engines": {
+                        "duckduckgo": {
+                            "url_template": "https://html.duckduckgo.com/html/?q={query}",
+                            "parser": "duckduckgo_html",
+                            "enabled": True
+                        },
+                        "searxng": {
+                            "url_template": "http://127.0.0.1:8080/search?q={query}",
+                            "parser": "generic_links",
+                            "enabled": True
+                        }
+                    },
+                    "max_same_domain": 2,
+                    "dedupe_domains": False
+                }
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    settings = AppSettings.load_for_workspace(tmp_path)
+
+    assert settings.browser.enabled is True
+    assert settings.browser.headless is False
+    assert settings.browser.launch_timeout_ms == 22222
+    assert settings.browser.snapshot_max_chars == 4321
+    assert settings.browser_search.enabled is True
+    assert settings.browser_search.default_search_engine == "searxng"
+    assert "searxng" in settings.browser_search.search_engines
+    assert settings.browser_search.search_engines["searxng"]["parser"] == "generic_links"
+    assert settings.browser_search.max_same_domain == 2
+    assert settings.browser_search.dedupe_domains is False

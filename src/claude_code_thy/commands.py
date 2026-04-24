@@ -88,6 +88,10 @@ class CommandProcessor:
             return self._append_message(session, self._task_output_text(session, args))
         if command == "/bash":
             return self._run_tool(session, "bash", raw_args, event_handler=event_handler)
+        if command in {"/browser-search", "/browser_search"}:
+            return self._run_tool(session, "browser_search", raw_args, event_handler=event_handler)
+        if command == "/browser":
+            return self._run_tool(session, "browser", raw_args, event_handler=event_handler)
         if command == "/read":
             return self._run_tool(session, "read", raw_args, event_handler=event_handler)
         if command == "/write":
@@ -131,9 +135,9 @@ class CommandProcessor:
                 self._missing_mcp_dynamic_command_text(session, normalized_command),
             )
 
-        return self._append_message(
-            session,
-            f"暂不支持命令 `{command}`。\n\n可用命令：/help /status /sessions /resume /model /tools /skills /mcp /tasks /agents /agent /agent-run /agent-wait /task-stop /task-output /bash /read /write /edit /glob /grep /skill /init /clear",
+            return self._append_message(
+                session,
+            f"暂不支持命令 `{command}`。\n\n可用命令：/help /status /sessions /resume /model /tools /skills /mcp /tasks /agents /agent /agent-run /agent-wait /task-stop /task-output /bash /browser-search /browser /read /write /edit /glob /grep /skill /init /clear",
         )
 
     def resume_pending_permission(
@@ -342,6 +346,8 @@ class CommandProcessor:
             "/task-stop 停止后台任务\n"
             "/task-output 查看后台任务输出尾部\n"
             "/bash      执行 shell 命令\n"
+            "/browser-search 搜索网页并展开结果\n"
+            "/browser   控制隔离浏览器\n"
             "/read      读取文件\n"
             "/write     写入文件\n"
             "/edit      按 old/new 规则编辑文件\n"

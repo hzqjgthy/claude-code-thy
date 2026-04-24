@@ -47,6 +47,13 @@ class PermissionEngine:
             return self._rule_to_decision(matched, command)
         return PermissionDecision(allowed=True)
 
+    def check_url(self, tool_name: str, url: str) -> PermissionDecision:
+        """检查 URL 是否命中了浏览器相关的权限规则。"""
+        matched = self._match_rule(tool_name, url, target="url")
+        if matched is not None:
+            return self._rule_to_decision(matched, url)
+        return PermissionDecision(allowed=True)
+
     def _match_rule(self, tool_name: str, value: str, *, target: str) -> ToolPermissionRule | None:
         """匹配 `rule`。"""
         for rule in self.settings.permission_rules:

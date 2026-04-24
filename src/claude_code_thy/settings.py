@@ -51,6 +51,39 @@ class SkillsSettings:
 
 
 @dataclass(slots=True)
+class BrowserSettings:
+    """保存内置浏览器工具的启动、产物和快照配置。"""
+    enabled: bool = True
+    headless: bool = True
+    executable_path: str = ""
+    profile_dir: str = ".claude-code-thy/browser-profile"
+    artifacts_dir: str = ".claude-code-thy/browser-artifacts"
+    launch_timeout_ms: int = 15_000
+    action_timeout_ms: int = 10_000
+    snapshot_max_chars: int = 12_000
+    viewport_width: int = 1440
+    viewport_height: int = 960
+
+
+@dataclass(slots=True)
+class BrowserSearchSettings:
+    """保存浏览器搜索工具的搜索引擎和结果筛选配置。"""
+    enabled: bool = True
+    default_search_engine: str = "duckduckgo"
+    search_engines: dict[str, dict[str, object]] = field(
+        default_factory=lambda: {
+            "duckduckgo": {
+                "url_template": "https://html.duckduckgo.com/html/?q={query}",
+                "parser": "duckduckgo_html",
+                "enabled": True,
+            }
+        }
+    )
+    max_same_domain: int = 1
+    dedupe_domains: bool = True
+
+
+@dataclass(slots=True)
 class LspServerSettings:
     """描述一个 LSP 服务端的启动命令和生效文件类型。"""
     name: str
@@ -94,6 +127,8 @@ class AppSettings:
     tasks: TaskSettings = field(default_factory=TaskSettings)
     file_history: FileHistorySettings = field(default_factory=FileHistorySettings)
     skills: SkillsSettings = field(default_factory=SkillsSettings)
+    browser: BrowserSettings = field(default_factory=BrowserSettings)
+    browser_search: BrowserSearchSettings = field(default_factory=BrowserSearchSettings)
     lsp: LspSettings = field(default_factory=LspSettings)
     mcp: McpSettings = field(default_factory=McpSettings)
 
@@ -115,6 +150,8 @@ class AppSettings:
             tasks=_load_task_settings(raw.get("tasks")),
             file_history=_load_file_history_settings(raw.get("file_history")),
             skills=_load_skills_settings(raw.get("skills")),
+            browser=_load_browser_settings(raw.get("browser")),
+            browser_search=_load_browser_search_settings(raw.get("browser_search")),
             lsp=_load_lsp_settings(raw.get("lsp")),
             mcp=_load_mcp_settings(raw.get("mcp")),
         )
@@ -168,6 +205,20 @@ def validate_settings_document(data: object) -> list[str]:
                 errors.append("skills.enabled 必须是布尔值。")
             if "search_roots" in skills and not isinstance(skills["search_roots"], list):
                 errors.append("skills.search_roots 必须是数组。")
+
+    browser = data.get("browser")
+    if browser is not None:
+        if not isinstance(browser, dict):
+            errors.append("browser 必须是 object。")
+        else:
+            errors.extend(_validate_browser_document(browser))
+
+    browser_search = data.get("browser_search")
+    if browser_search is not None:
+        if not isinstance(browser_search, dict):
+            errors.append("browser_search 必须是 object。")
+        else:
+            errors.extend(_validate_browser_search_document(browser_search))
 
     lsp = data.get("lsp")
     if lsp is not None:
@@ -353,6 +404,52 @@ def _load_skills_settings(value: object) -> SkillsSettings:
     )
 
 
+def _load_browser_settings(value: object) -> BrowserSettings:
+    """从原始 JSON 片段构造浏览器工具配置。"""
+    if not isinstance(value, dict):
+        return BrowserSettings()
+    return BrowserSettings(
+        enabled=bool(value.get("enabled", True)),
+        headless=bool(value.get("headless", True)),
+        executable_path=str(value.get("executable_path", "") or ""),
+        profile_dir=str(value.get("profile_dir", ".claude-code-thy/browser-profile")),
+        artifacts_dir=str(value.get("artifacts_dir", ".claude-code-thy/browser-artifacts")),
+        launch_timeout_ms=int(value.get("launch_timeout_ms", 15_000) or 15_000),
+        action_timeout_ms=int(value.get("action_timeout_ms", 10_000) or 10_000),
+        snapshot_max_chars=int(value.get("snapshot_max_chars", 12_000) or 12_000),
+        viewport_width=int(value.get("viewport_width", 1440) or 1440),
+        viewport_height=int(value.get("viewport_height", 960) or 960),
+    )
+
+
+def _load_browser_search_settings(value: object) -> BrowserSearchSettings:
+    """从原始 JSON 片段构造浏览器搜索工具配置。"""
+    if not isinstance(value, dict):
+        return BrowserSearchSettings()
+    raw_search_engines = value.get("search_engines")
+    search_engines = BrowserSearchSettings().search_engines
+    if isinstance(raw_search_engines, dict):
+        search_engines = {}
+        for name, item in raw_search_engines.items():
+            if not isinstance(item, dict):
+                continue
+            url_template = str(item.get("url_template", "")).strip()
+            if not url_template:
+                continue
+            search_engines[str(name).strip().lower()] = {
+                "url_template": url_template,
+                "parser": str(item.get("parser", "generic_links") or "generic_links").strip().lower(),
+                "enabled": bool(item.get("enabled", True)),
+            }
+    return BrowserSearchSettings(
+        enabled=bool(value.get("enabled", True)),
+        default_search_engine=str(value.get("default_search_engine", "duckduckgo") or "duckduckgo").strip().lower(),
+        search_engines=search_engines,
+        max_same_domain=int(value.get("max_same_domain", 1) or 1),
+        dedupe_domains=bool(value.get("dedupe_domains", True)),
+    )
+
+
 def _load_lsp_settings(value: object) -> LspSettings:
     """从原始 JSON 片段构造 LSP 配置，并过滤非法 server。"""
     if not isinstance(value, dict):
@@ -404,3 +501,45 @@ def _load_mcp_settings(value: object) -> McpSettings:
         connect_timeout_ms=int(value.get("connect_timeout_ms", 15_000) or 15_000),
         tool_call_timeout_ms=int(value.get("tool_call_timeout_ms", 600_000) or 600_000),
     )
+
+
+def _validate_browser_document(data: dict[str, object]) -> list[str]:
+    """校验 browser 段落里的字段类型。"""
+    errors: list[str] = []
+    if "enabled" in data and not isinstance(data["enabled"], bool):
+        errors.append("browser.enabled 必须是布尔值。")
+    if "headless" in data and not isinstance(data["headless"], bool):
+        errors.append("browser.headless 必须是布尔值。")
+    if "executable_path" in data and not isinstance(data["executable_path"], str):
+        errors.append("browser.executable_path 必须是字符串。")
+    if "profile_dir" in data and not isinstance(data["profile_dir"], str):
+        errors.append("browser.profile_dir 必须是字符串。")
+    if "artifacts_dir" in data and not isinstance(data["artifacts_dir"], str):
+        errors.append("browser.artifacts_dir 必须是字符串。")
+    if "launch_timeout_ms" in data and not isinstance(data["launch_timeout_ms"], int):
+        errors.append("browser.launch_timeout_ms 必须是整数。")
+    if "action_timeout_ms" in data and not isinstance(data["action_timeout_ms"], int):
+        errors.append("browser.action_timeout_ms 必须是整数。")
+    if "snapshot_max_chars" in data and not isinstance(data["snapshot_max_chars"], int):
+        errors.append("browser.snapshot_max_chars 必须是整数。")
+    if "viewport_width" in data and not isinstance(data["viewport_width"], int):
+        errors.append("browser.viewport_width 必须是整数。")
+    if "viewport_height" in data and not isinstance(data["viewport_height"], int):
+        errors.append("browser.viewport_height 必须是整数。")
+    return errors
+
+
+def _validate_browser_search_document(data: dict[str, object]) -> list[str]:
+    """校验 browser_search 段落里的字段类型。"""
+    errors: list[str] = []
+    if "enabled" in data and not isinstance(data["enabled"], bool):
+        errors.append("browser_search.enabled 必须是布尔值。")
+    if "default_search_engine" in data and not isinstance(data["default_search_engine"], str):
+        errors.append("browser_search.default_search_engine 必须是字符串。")
+    if "search_engines" in data and not isinstance(data["search_engines"], dict):
+        errors.append("browser_search.search_engines 必须是 object。")
+    if "max_same_domain" in data and not isinstance(data["max_same_domain"], int):
+        errors.append("browser_search.max_same_domain 必须是整数。")
+    if "dedupe_domains" in data and not isinstance(data["dedupe_domains"], bool):
+        errors.append("browser_search.dedupe_domains 必须是布尔值。")
+    return errors

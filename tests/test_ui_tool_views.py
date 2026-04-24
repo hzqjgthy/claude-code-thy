@@ -53,3 +53,53 @@ def test_read_tool_result_message_keeps_line_count_on_own_line() -> None:
     )
 
     assert "⏺ Read 读取文件：manual-secret/token.txt\n  Read 1 line" in text
+
+
+def test_browser_tool_result_message_shows_action_and_page() -> None:
+    """测试浏览器工具结果会展示动作和页面信息。"""
+    text = render_to_text(
+        {
+            "tool_name": "browser",
+            "display_name": "Browser",
+            "summary": "浏览器快照：p1",
+            "ui_kind": "browser",
+            "output": "Page Title: Example\nPage URL: https://example.com",
+            "structured_data": {
+                "type": "browser_snapshot",
+                "action": "snapshot",
+                "page_id": "p1",
+                "ref_count": 3,
+            },
+        }
+    )
+
+    assert "⏺ Browser 浏览器快照：p1" in text
+    assert "Action: snapshot" in text
+    assert "Page: p1" in text
+    assert "Refs: 3" in text
+
+
+def test_browser_search_tool_result_message_shows_result_counts() -> None:
+    """测试浏览器 search 结果会展示搜索统计。"""
+    text = render_to_text(
+        {
+            "tool_name": "browser_search",
+            "display_name": "Browser Search",
+            "summary": "浏览器搜索：gpt5.4",
+            "ui_kind": "browser_search",
+            "output": "Search Query: gpt5.4\nTop Results:\n1. Result One",
+            "structured_data": {
+                "type": "browser_search",
+                "search_engine": "duckduckgo",
+                "parser": "duckduckgo_html",
+                "result_count": 5,
+                "open_count": 2,
+            },
+        }
+    )
+
+    assert "⏺ Browser Search 浏览器搜索：gpt5.4" in text
+    assert "Engine: duckduckgo" in text
+    assert "Parser: duckduckgo_html" in text
+    assert "Results: 5" in text
+    assert "Expanded: 2" in text

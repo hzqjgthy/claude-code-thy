@@ -65,7 +65,12 @@ class PermissionRequest:
 
     def prompt_text(self) -> str:
         """处理 `prompt_text`。"""
-        action = "命令" if self.target == "command" else "路径"
+        action_map = {
+            "command": "命令",
+            "path": "路径",
+            "url": "URL",
+        }
+        action = action_map.get(self.target, self.target or "目标")
         lines = [f"`{self.tool_name}` 请求访问{action}："]
         lines.append(self.value)
         if self.reason:

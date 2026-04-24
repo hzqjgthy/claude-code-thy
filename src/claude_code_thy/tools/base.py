@@ -146,6 +146,35 @@ class PermissionContext:
             )
         raise ToolError(decision.reason or f"{tool_name} 命令被权限规则拒绝")
 
+    def check_url(self, tool_name: str, url: str) -> PermissionDecision | None:
+        """委托权限引擎判断某个 URL 是否允许访问。"""
+        if self.permission_engine is None:
+            return None
+        return self.permission_engine.check_url(tool_name, url)
+
+    def require_url(self, tool_name: str, url: str) -> None:
+        """要求 URL 访问通过权限校验，否则转成拒绝或确认请求。"""
+        decision = self.check_url(tool_name, url)
+        if decision is None:
+            return
+        if decision.allowed and not decision.requires_confirmation:
+            return
+        approval_key = self._approval_key(tool_name, "url", url)
+        if decision.requires_confirmation and approval_key in self.approved_permissions:
+            return
+        if decision.requires_confirmation:
+            raise PermissionRequiredError(
+                self._permission_request(
+                    tool_name=tool_name,
+                    target="url",
+                    value=url,
+                    reason=decision.reason or f"{tool_name} 需要 URL 访问确认",
+                    approval_key=approval_key,
+                    decision=decision,
+                )
+            )
+        raise ToolError(decision.reason or f"{tool_name} URL 被权限规则拒绝")
+
     def decide_sandbox(
         self,
         command: str,
@@ -226,6 +255,24 @@ class PermissionContext:
             reason=reason or (decision.reason if decision is not None else f"{tool_name} 需要命令执行确认"),
             approval_key=self._approval_key(tool_name, "command", command),
             decision=decision or self._default_decision(reason or f"{tool_name} 需要命令执行确认"),
+        )
+
+    def build_request_for_url(
+        self,
+        tool_name: str,
+        url: str,
+        *,
+        reason: str = "",
+    ) -> "PermissionRequest":
+        """为 URL 访问手动构造一条权限确认请求。"""
+        decision = self.check_url(tool_name, url)
+        return self._permission_request(
+            tool_name=tool_name,
+            target="url",
+            value=url,
+            reason=reason or (decision.reason if decision is not None else f"{tool_name} 需要 URL 访问确认"),
+            approval_key=self._approval_key(tool_name, "url", url),
+            decision=decision or self._default_decision(reason or f"{tool_name} 需要 URL 访问确认"),
         )
 
     def match_path_pattern(self, path: Path, pattern: str) -> bool:

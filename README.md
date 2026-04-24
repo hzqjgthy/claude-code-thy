@@ -46,6 +46,8 @@
 
 - `agent`
 - `bash`
+- `browser_search`
+- `browser`
 - `read`
 - `write`
 - `edit`
@@ -65,7 +67,26 @@
 - tool result 到模型消息的映射
 - tool metadata / structured_data 持久化
 
-### 4. Bash / 文件能力
+### 4. Browser / Bash / 文件能力
+
+#### `browser_search`
+
+- 搜索网页并汇总候选结果
+- 支持从 settings 中配置默认搜索引擎和搜索模板
+- 搜索结果会做基础打分、去重和智能筛选
+- 支持设置候选结果数量和实际展开网页数量
+- 主结果页会保留在浏览器里，展开页按需临时抓取
+
+#### `browser`
+
+- 管理一个隔离浏览器实例
+- 支持 `status/start/stop/tabs/open/focus/close`
+- 支持 `navigate/snapshot/screenshot`
+- 支持 `click/type/press/wait`
+- 使用页面快照里的 `ref` 做后续交互
+- 浏览器 URL 访问可接入权限确认规则
+- 浏览器数据和截图默认写入 `.claude-code-thy/browser-*`
+- 首次使用前通常还需要执行 `playwright install chromium`
 
 #### `bash`
 

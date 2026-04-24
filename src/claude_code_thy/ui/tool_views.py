@@ -15,6 +15,16 @@ from claude_code_thy.tools.BashTool.UI import (
     summarize_input as bash_summarize_input,
     tool_label as bash_tool_label,
 )
+from claude_code_thy.tools.BrowserSearchTool.UI import (
+    extra_result_lines as browser_search_extra_result_lines,
+    summarize_input as browser_search_summarize_input,
+    tool_label as browser_search_tool_label,
+)
+from claude_code_thy.tools.BrowserTool.UI import (
+    extra_result_lines as browser_extra_result_lines,
+    summarize_input as browser_summarize_input,
+    tool_label as browser_tool_label,
+)
 from claude_code_thy.tools.FileEditTool.UI import (
     extra_result_lines as edit_extra_result_lines,
     summarize_input as edit_summarize_input,
@@ -44,6 +54,8 @@ from claude_code_thy.tools.GrepTool.UI import (
 TOOL_LABELS = {
     "agent": agent_tool_label,
     "bash": bash_tool_label,
+    "browser_search": browser_search_tool_label,
+    "browser": browser_tool_label,
     "read": read_tool_label,
     "write": write_tool_label,
     "edit": edit_tool_label,
@@ -54,6 +66,8 @@ TOOL_LABELS = {
 TOOL_INPUT_SUMMARIZERS = {
     "agent": agent_summarize_input,
     "bash": bash_summarize_input,
+    "browser_search": browser_search_summarize_input,
+    "browser": browser_summarize_input,
     "read": read_summarize_input,
     "write": write_summarize_input,
     "edit": edit_summarize_input,
@@ -64,6 +78,8 @@ TOOL_INPUT_SUMMARIZERS = {
 TOOL_EXTRA_RESULT_LINES = {
     "agent": agent_extra_result_lines,
     "bash": bash_extra_result_lines,
+    "browser_search": browser_search_extra_result_lines,
+    "browser": browser_extra_result_lines,
     "read": read_extra_result_lines,
     "write": write_extra_result_lines,
     "edit": edit_extra_result_lines,
