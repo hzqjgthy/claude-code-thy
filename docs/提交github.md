@@ -44,3 +44,5 @@ unset https_proxy http_proxy
 git switch -c front_and_back
 git branch -u origin/front_and_back
 
+切回 main
+git switch main
