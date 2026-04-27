@@ -1,6 +1,7 @@
 from claude_code_thy.commands import CommandProcessor
 from claude_code_thy.mcp.types import McpPromptDefinition, McpServerConfig, McpServerConnection
 from claude_code_thy.session.store import SessionStore
+from claude_code_thy.tools import selection
 from claude_code_thy.tools import ToolRuntime, build_builtin_tools
 
 
@@ -80,6 +81,25 @@ def test_tools_command_lists_builtin_tools(tmp_path):
     assert outcome.message_added is True
     assert "bash" in outcome.session.messages[-1].text
     assert "read-only" in outcome.session.messages[-1].text
+
+
+def test_tools_command_shows_model_visible_section(monkeypatch, tmp_path):
+    """测试 `/tools` 会区分手动可执行和主链可见工具。"""
+    monkeypatch.setattr(selection, "MODEL_VISIBLE_TOOLS", ["read", "glob"])
+    monkeypatch.setattr(selection, "SLASH_AVAILABLE_TOOLS", ["read", "bash", "glob"])
+
+    store = SessionStore(root_dir=tmp_path / "sessions")
+    processor = build_processor(store)
+    session = store.create(cwd=str(tmp_path), model="glm-4.5", provider_name="test-provider")
+    store.save(session)
+
+    outcome = processor.process(session, "/tools")
+
+    text = outcome.session.messages[-1].text
+    assert "手动可执行工具：" in text
+    assert "当前主链可见工具：" in text
+    assert "- read" in text
+    assert "- glob" in text
 
 
 def test_mcp_command_lists_configured_servers(tmp_path):
@@ -219,6 +239,48 @@ def test_dynamic_mcp_tool_slash_command_executes(tmp_path):
 
     assert outcome.message_added is True
     assert "check_login_status" in outcome.session.messages[-1].text
+
+
+def test_dynamic_mcp_tool_disabled_for_slash_reports_selection_error(monkeypatch, tmp_path):
+    """测试动态 MCP 工具被 slash 列表禁用时会给出明确提示。"""
+    monkeypatch.setattr(selection, "SLASH_AVAILABLE_TOOLS", ["read", "bash"])
+
+    store = SessionStore(root_dir=tmp_path / "sessions")
+    processor = build_processor(store)
+    session = store.create(cwd=str(tmp_path), model="glm-4.5", provider_name="test-provider")
+    store.save(session)
+    services = processor.tool_runtime.services_for(session)
+
+    from claude_code_thy.mcp.types import McpToolDefinition
+
+    class DummyMgr:
+        async def refresh_all(self):
+            return []
+
+        def cached_tools(self):
+            return {
+                "demo": [
+                    McpToolDefinition(
+                        name="check_login_status",
+                        description="check login",
+                        input_schema={"type": "object", "properties": {}, "required": []},
+                        annotations={"readOnlyHint": True, "original_name": "check_login_status"},
+                    )
+                ]
+            }
+
+        def cached_prompts(self):
+            return {}
+
+        def cached_resources(self):
+            return {}
+
+    services.mcp_manager = DummyMgr()
+
+    outcome = processor.process(session, "/mcp__demo__check_login_status")
+
+    assert outcome.message_added is True
+    assert "未允许通过 slash 执行" in outcome.session.messages[-1].text
 
 
 def test_dynamic_mcp_tool_permission_resume_with_empty_structured_input_succeeds(tmp_path):

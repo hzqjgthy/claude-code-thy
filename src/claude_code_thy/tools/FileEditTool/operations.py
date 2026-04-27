@@ -35,8 +35,6 @@ def load_edit_target(
         snapshot = read_text_snapshot(path)
         original_file = snapshot.content
         _ensure_full_read_before_write(context, path, original_file)
-        if context.services is not None:
-            context.services.file_history.snapshot(path, original_file)
         return original_file, snapshot
 
     if old_string != "":

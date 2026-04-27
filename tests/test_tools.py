@@ -4,6 +4,7 @@ from claude_code_thy.models import SessionTranscript
 from claude_code_thy.mcp.client import _ManagedConnection
 from claude_code_thy.mcp.config import add_project_mcp_server
 from claude_code_thy.mcp.types import McpResourceDefinition, McpToolDefinition
+from claude_code_thy.tools import selection
 from claude_code_thy.tools import ToolError, ToolRuntime, build_builtin_tools
 
 
@@ -248,6 +249,70 @@ def test_read_tool_supports_utf8_non_ascii_text(tmp_path):
 
     assert result.ok is True
     assert "你好，世界" in result.output
+
+
+def test_model_visible_tool_selection_filters_tool_specs(monkeypatch, tmp_path):
+    """测试主链可见工具列表会过滤模型侧 tool specs。"""
+    monkeypatch.setattr(selection, "MODEL_VISIBLE_TOOLS", ["read", "glob"])
+
+    runtime = build_runtime()
+    session = SessionTranscript(session_id="test", cwd=str(tmp_path))
+
+    names = [spec.name for spec in runtime.list_tool_specs_for_session(session)]
+
+    assert names == ["glob", "read"]
+
+
+def test_execution_tool_selection_blocks_slash_execution(monkeypatch, tmp_path):
+    """测试 slash 可用工具列表会阻止未授权工具执行。"""
+    monkeypatch.setattr(selection, "SLASH_AVAILABLE_TOOLS", ["read"])
+
+    runtime = build_runtime()
+    session = SessionTranscript(session_id="test", cwd=str(tmp_path))
+
+    try:
+        runtime.execute("bash", "echo hi", session)
+    except ToolError as error:
+        assert "未允许通过 slash 执行" in str(error)
+    else:
+        raise AssertionError("Expected ToolError")
+
+
+def test_model_visible_tool_selection_filters_dynamic_mcp_tools(monkeypatch, tmp_path):
+    """测试模型侧工具过滤也作用于动态 MCP 工具。"""
+    monkeypatch.setattr(selection, "MODEL_VISIBLE_TOOLS", ["mcp__demo__check_login_status"])
+
+    runtime = build_runtime()
+    session = SessionTranscript(session_id="test", cwd=str(tmp_path))
+    services = runtime.services_for(session)
+
+    class DummyMgr:
+        async def refresh_all(self):
+            return []
+
+        def cached_tools(self):
+            return {
+                "demo": [
+                    McpToolDefinition(
+                        name="check_login_status",
+                        description="check login",
+                        input_schema={"type": "object", "properties": {}, "required": []},
+                        annotations={"readOnlyHint": True, "original_name": "check_login_status"},
+                    )
+                ]
+            }
+
+        def cached_prompts(self):
+            return {}
+
+        def cached_resources(self):
+            return {}
+
+    services.mcp_manager = DummyMgr()
+
+    names = [spec.name for spec in runtime.list_tool_specs_for_session(session)]
+
+    assert names == ["mcp__demo__check_login_status"]
 
 
 def test_render_rejected_edit_result_contains_diff(tmp_path):

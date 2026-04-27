@@ -47,8 +47,6 @@ def load_existing_text(
         had_bom = snapshot.had_bom
         _ensure_full_read_before_write(context, path, previous_content)
         operation = "update"
-        if context.services is not None:
-            context.services.file_history.snapshot(path, previous_content)
     return WriteTargetState(
         previous_content=previous_content,
         operation=operation,

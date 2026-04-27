@@ -311,7 +311,6 @@ CLAUDE_CODE_THY_MAX_TOKENS=4096
 - `permissions`
 - `sandbox`
 - `tasks`
-- `file_history`
 - `skills`
 - `lsp`
 - `mcp`

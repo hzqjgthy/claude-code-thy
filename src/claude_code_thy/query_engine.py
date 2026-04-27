@@ -120,6 +120,7 @@ class QueryEngine:
             tool_name,
             input_data if isinstance(input_data, dict) else {},
             session,
+            surface="model",
             reason=denied_reason or f"工具 `{tool_name}` 执行被用户拒绝。",
             tool_use_id=tool_use_id,
             original_input=original_input if isinstance(original_input, dict) else None,
@@ -298,6 +299,7 @@ class QueryEngine:
                 tool_name,
                 input_data,
                 session,
+                surface="model",
                 tool_use_id=tool_use_id,
                 original_input=original_input,
                 event_handler=event_handler,
@@ -307,13 +309,15 @@ class QueryEngine:
         try:
             return await asyncio.wait_for(
                 asyncio.to_thread(
-                    self.tool_runtime.execute_input,
-                    tool_name,
-                    input_data,
-                    session,
-                    tool_use_id=tool_use_id,
-                    original_input=original_input,
-                    event_handler=None,
+                    lambda: self.tool_runtime.execute_input(
+                        tool_name,
+                        input_data,
+                        session,
+                        surface="model",
+                        tool_use_id=tool_use_id,
+                        original_input=original_input,
+                        event_handler=None,
+                    )
                 ),
                 timeout=timeout_s,
             )

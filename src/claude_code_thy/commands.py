@@ -135,8 +135,8 @@ class CommandProcessor:
                 self._missing_mcp_dynamic_command_text(session, normalized_command),
             )
 
-            return self._append_message(
-                session,
+        return self._append_message(
+            session,
             f"暂不支持命令 `{command}`。\n\n可用命令：/help /status /sessions /resume /model /tools /skills /mcp /tasks /agents /agent /agent-run /agent-wait /task-stop /task-output /bash /browser-search /browser /read /write /edit /glob /grep /skill /init /clear",
         )
 
@@ -369,7 +369,8 @@ class CommandProcessor:
             f"provider: {session.provider_name or 'unknown'}\n"
             f"model: {session.model or '(unset)'}\n"
             f"messages: {len(session.messages)}\n"
-            f"tools: {len(self.tool_runtime.list_tools_for_session(session))}\n"
+            f"execution_tools: {len(self.tool_runtime.list_tools_for_session(session, surface='execution'))}\n"
+            f"model_tools: {len(self.tool_runtime.list_tools_for_session(session, surface='model'))}\n"
             f"transcript: {transcript_path}\n\n"
             f"恢复命令：claude-code-thy --resume {session.session_id}"
         )
@@ -443,8 +444,12 @@ class CommandProcessor:
 
     def _tools_text(self, session: SessionTranscript) -> str:
         """列出当前会话可见的工具及其只读/搜索等元信息。"""
-        lines = ["可用工具："]
-        for tool in self.tool_runtime.list_tools_for_session(session):
+        execution_tools = self.tool_runtime.list_tools_for_session(session, surface="execution")
+        model_tools = self.tool_runtime.list_tools_for_session(session, surface="model")
+        model_tool_names = {tool.name for tool in model_tools}
+
+        lines = ["手动可执行工具："]
+        for tool in execution_tools:
             suffix = f"\n  用法: {tool.usage}" if getattr(tool, "usage", "") else ""
             meta: list[str] = []
             if tool.is_read_only():
@@ -456,8 +461,16 @@ class CommandProcessor:
                 meta.append("search")
             if behavior.get("is_read"):
                 meta.append("read")
+            if tool.name in model_tool_names:
+                meta.append("model-visible")
             meta_text = f" [{' · '.join(meta)}]" if meta else ""
             lines.append(f"- {tool.name}{meta_text}: {tool.description}{suffix}")
+
+        if model_tools:
+            lines.append("")
+            lines.append("当前主链可见工具：")
+            for tool in model_tools:
+                lines.append(f"- {tool.name}")
         return "\n".join(lines)
 
     def _tasks_text(self, session: SessionTranscript) -> str:
@@ -772,8 +785,13 @@ class CommandProcessor:
         if not command.startswith("/mcp__"):
             return None
         tool_name = command[1:]
-        if not self.tool_runtime.has_tool_for_session(session, tool_name):
+        if not self.tool_runtime.can_resolve_tool_for_session(session, tool_name):
             return None
+        if not self.tool_runtime.has_tool_for_session(session, tool_name, surface="execution"):
+            return self._append_message(
+                session,
+                f"工具 `{tool_name}` 当前未允许通过 slash 执行。",
+            )
         raw = raw_args.strip()
         if not raw:
             input_data: dict[str, object] = {}

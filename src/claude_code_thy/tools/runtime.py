@@ -14,6 +14,11 @@ from claude_code_thy.models import SessionTranscript
 from claude_code_thy.services import ToolServices, build_tool_services
 from claude_code_thy.tools.MCPTool import MCPTool
 from claude_code_thy.tools.McpAuthTool import McpAuthTool
+from claude_code_thy.tools.selection import (
+    selected_tools,
+    tool_available_for_slash,
+    tool_visible_for_model,
+)
 from claude_code_thy.tools.base import (
     PermissionContext,
     RuntimeSessionState,
@@ -41,20 +46,40 @@ class ToolRuntime:
         """导出全部静态工具的 schema 描述。"""
         return [tool.to_spec() for tool in self.list_tools()]
 
-    def list_tools_for_session(self, session: SessionTranscript) -> list[Tool]:
-        """返回某个会话当前真正可用的工具，包含动态 MCP 工具。"""
-        dynamic = self._dynamic_tools_for_session(session)
-        tools = {tool.name: tool for tool in self.list_tools()}
-        tools.update({tool.name: tool for tool in dynamic})
-        return [tools[name] for name in sorted(tools)]
+    def list_tools_for_session(
+        self,
+        session: SessionTranscript,
+        *,
+        surface: str = "execution",
+    ) -> list[Tool]:
+        """返回某个会话在指定面上真正可用的工具，包含动态 MCP 工具。"""
+        tools = self._tools_by_name_for_session(session)
+        names = selected_tools(sorted(tools), surface=surface)
+        return [tools[name] for name in names]
 
     def list_tool_specs_for_session(self, session: SessionTranscript) -> list[ToolSpec]:
         """导出某个会话可见工具的完整 schema 列表。"""
         context = self._build_context(session, None)
-        return [tool.to_spec_for_context(context) for tool in self.list_tools_for_session(session)]
+        return [
+            tool.to_spec_for_context(context)
+            for tool in self.list_tools_for_session(session, surface="model")
+        ]
 
-    def has_tool_for_session(self, session: SessionTranscript, tool_name: str) -> bool:
-        """判断某个工具名在当前会话里是否可解析。"""
+    def has_tool_for_session(
+        self,
+        session: SessionTranscript,
+        tool_name: str,
+        *,
+        surface: str = "execution",
+    ) -> bool:
+        """判断某个工具名在当前会话指定面上是否可解析。"""
+        tool = self._resolve_tool(session, tool_name)
+        if tool is None:
+            return False
+        return self._tool_allowed(tool.name, surface=surface)
+
+    def can_resolve_tool_for_session(self, session: SessionTranscript, tool_name: str) -> bool:
+        """判断工具名在当前会话里是否真实存在，不考虑 model/slash 可见性。"""
         return self._resolve_tool(session, tool_name) is not None
 
     def services_for(self, session: SessionTranscript) -> ToolServices:
@@ -70,6 +95,7 @@ class ToolRuntime:
         raw_args: str,
         session: SessionTranscript,
         *,
+        surface: str = "execution",
         tool_use_id: str | None = None,
         event_handler: ToolEventHandler | None = None,
     ) -> ToolResult:
@@ -77,6 +103,7 @@ class ToolRuntime:
         tool = self._resolve_tool(session, tool_name)
         if tool is None:
             raise ToolError(f"未找到工具：{tool_name}")
+        self._ensure_tool_allowed(tool.name, surface=surface)
 
         context = self._build_context(session, event_handler)
         input_data = tool.parse_raw_input(raw_args, context)
@@ -95,6 +122,7 @@ class ToolRuntime:
         input_data: dict[str, object],
         session: SessionTranscript,
         *,
+        surface: str = "execution",
         tool_use_id: str | None = None,
         original_input: dict[str, object] | None = None,
         event_handler: ToolEventHandler | None = None,
@@ -103,6 +131,7 @@ class ToolRuntime:
         tool = self._resolve_tool(session, tool_name)
         if tool is None:
             raise ToolError(f"未找到工具：{tool_name}")
+        self._ensure_tool_allowed(tool.name, surface=surface)
 
         return self._invoke(
             tool,
@@ -119,6 +148,7 @@ class ToolRuntime:
         input_data: dict[str, object],
         session: SessionTranscript,
         *,
+        surface: str = "execution",
         reason: str,
         tool_use_id: str | None = None,
         original_input: dict[str, object] | None = None,
@@ -127,6 +157,7 @@ class ToolRuntime:
         tool = self._resolve_tool(session, tool_name)
         if tool is None:
             raise ToolError(f"未找到工具：{tool_name}")
+        self._ensure_tool_allowed(tool.name, surface=surface)
         original = copy.deepcopy(original_input or input_data)
         user_modified = not tool.inputs_equivalent(original, input_data)
         context = self._build_context(
@@ -284,6 +315,27 @@ class ToolRuntime:
         if tool_name.startswith("mcp__"):
             return self._resolve_mcp_tool(session, tool_name)
         return None
+
+    def _tools_by_name_for_session(self, session: SessionTranscript) -> dict[str, Tool]:
+        """收集当前会话的静态和动态工具，并按工具名去重。"""
+        dynamic = self._dynamic_tools_for_session(session)
+        tools = {tool.name: tool for tool in self.list_tools()}
+        tools.update({tool.name: tool for tool in dynamic})
+        return tools
+
+    def _tool_allowed(self, tool_name: str, *, surface: str) -> bool:
+        """按目标面判断工具是否允许使用。"""
+        if surface == "model":
+            return tool_visible_for_model(tool_name)
+        return tool_available_for_slash(tool_name)
+
+    def _ensure_tool_allowed(self, tool_name: str, *, surface: str) -> None:
+        """在真正执行前校验工具是否允许出现在对应目标面。"""
+        if self._tool_allowed(tool_name, surface=surface):
+            return
+        if surface == "model":
+            raise ToolError(f"工具 `{tool_name}` 当前未暴露给主链模型")
+        raise ToolError(f"工具 `{tool_name}` 当前未允许通过 slash 执行")
 
     def _resolve_mcp_tool(self, session: SessionTranscript, tool_name: str) -> Tool | None:
         """把 `/mcp__server__tool` 名称映射到具体 MCPTool 包装对象。"""

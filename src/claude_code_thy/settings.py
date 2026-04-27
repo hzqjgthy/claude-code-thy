@@ -34,15 +34,6 @@ class TaskSettings:
     tasks_dir: str = ".claude-code-thy/tasks"
     tool_results_dir: str = ".claude-code-thy/tool-results"
 
-
-@dataclass(slots=True)
-class FileHistorySettings:
-    """控制文件快照历史是否开启以及存储上限。"""
-    enabled: bool = True
-    history_dir: str = ".claude-code-thy/file-history"
-    max_snapshots_per_file: int = 20
-
-
 @dataclass(slots=True)
 class SkillsSettings:
     """保存本地 skills 搜索根目录。"""
@@ -125,7 +116,6 @@ class AppSettings:
     )
     sandbox: SandboxSettings = field(default_factory=SandboxSettings)
     tasks: TaskSettings = field(default_factory=TaskSettings)
-    file_history: FileHistorySettings = field(default_factory=FileHistorySettings)
     skills: SkillsSettings = field(default_factory=SkillsSettings)
     browser: BrowserSettings = field(default_factory=BrowserSettings)
     browser_search: BrowserSearchSettings = field(default_factory=BrowserSearchSettings)
@@ -148,7 +138,6 @@ class AppSettings:
             ),
             sandbox=_load_sandbox_settings(raw.get("sandbox")),
             tasks=_load_task_settings(raw.get("tasks")),
-            file_history=_load_file_history_settings(raw.get("file_history")),
             skills=_load_skills_settings(raw.get("skills")),
             browser=_load_browser_settings(raw.get("browser")),
             browser_search=_load_browser_search_settings(raw.get("browser_search")),
@@ -185,16 +174,6 @@ def validate_settings_document(data: object) -> list[str]:
         else:
             if "max_background_tasks" in tasks and not isinstance(tasks["max_background_tasks"], int):
                 errors.append("tasks.max_background_tasks 必须是整数。")
-
-    file_history = data.get("file_history")
-    if file_history is not None:
-        if not isinstance(file_history, dict):
-            errors.append("file_history 必须是 object。")
-        else:
-            if "enabled" in file_history and not isinstance(file_history["enabled"], bool):
-                errors.append("file_history.enabled 必须是布尔值。")
-            if "max_snapshots_per_file" in file_history and not isinstance(file_history["max_snapshots_per_file"], int):
-                errors.append("file_history.max_snapshots_per_file 必须是整数。")
 
     skills = data.get("skills")
     if skills is not None:
@@ -381,18 +360,6 @@ def _load_task_settings(value: object) -> TaskSettings:
         tasks_dir=str(value.get("tasks_dir", ".claude-code-thy/tasks")),
         tool_results_dir=str(value.get("tool_results_dir", ".claude-code-thy/tool-results")),
     )
-
-
-def _load_file_history_settings(value: object) -> FileHistorySettings:
-    """从原始 JSON 片段构造文件历史配置。"""
-    if not isinstance(value, dict):
-        return FileHistorySettings()
-    return FileHistorySettings(
-        enabled=bool(value.get("enabled", True)),
-        history_dir=str(value.get("history_dir", ".claude-code-thy/file-history")),
-        max_snapshots_per_file=int(value.get("max_snapshots_per_file", 20) or 20),
-    )
-
 
 def _load_skills_settings(value: object) -> SkillsSettings:
     """从原始 JSON 片段构造本地 skills 配置。"""

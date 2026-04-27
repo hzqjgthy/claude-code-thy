@@ -603,9 +603,6 @@ class BashTool(Tool):
         except Exception:
             expected = original
 
-        if context.services is not None:
-            context.services.file_history.snapshot(path, original)
-
         return {
             "path": path,
             "original": original,
