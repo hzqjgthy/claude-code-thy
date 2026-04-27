@@ -37,3 +37,10 @@ export http_proxy=http://127.0.0.1:7890
 
 # 取消代理
 unset https_proxy http_proxy
+
+
+
+切换分支到 front_and_back
+git switch -c front_and_back
+git branch -u origin/front_and_back
+
