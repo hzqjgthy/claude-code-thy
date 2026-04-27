@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 
 from claude_code_thy.mcp.names import build_prompt_command_name, normalize_name_for_mcp
-from claude_code_thy.mcp.resources import serialize_resource_read_result
+from claude_code_thy.mcp.serializers import serialize_resource_read_result
 from claude_code_thy.mcp.types import McpPromptDefinition, McpResourceDefinition
 
 from .frontmatter import extract_description_from_markdown, parse_frontmatter_document, parse_string_list

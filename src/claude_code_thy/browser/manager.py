@@ -12,7 +12,6 @@ from uuid import uuid4
 from claude_code_thy.settings import BrowserSearchSettings, BrowserSettings
 
 from .search import (
-    DEFAULT_SEARCH_ENGINE,
     build_search_url,
     resolve_search_engine_config,
     search_results_script,

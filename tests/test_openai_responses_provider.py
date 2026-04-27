@@ -1,3 +1,4 @@
+import asyncio
 import json
 from io import BytesIO
 from urllib.error import HTTPError
@@ -430,23 +431,40 @@ def test_openai_responses_provider_preserves_structured_edit_schema():
     assert parameters["properties"]["replace_all"]["type"] == "boolean"
 
 
-def test_openai_responses_provider_rejects_stream_mode_for_now():
-    """测试 `openai_responses_provider_rejects_stream_mode_for_now` 场景。"""
+def test_openai_responses_provider_stream_complete_yields_delta_and_response():
+    """测试 OpenAI 流式接口会先产出文本增量，再产出最终响应。"""
     config = AppConfig(
         provider="openai-responses-compatible",
         model="gpt-5.4",
         openai_responses_api_key="test-openai-key",
-        openai_responses_enable_stream=True,
     )
     provider = OpenAIResponsesProvider(config)
     session = SessionTranscript(session_id="s1", cwd="/tmp", model="gpt-5.4", provider_name=provider.name)
 
-    try:
-        provider._request(session, [])
-    except ProviderError as error:
-        assert "OPENAI_RESPONSES_ENABLE_STREAM=false" in str(error)
-    else:
-        raise AssertionError("Expected ProviderError")
+    async def fake_stream_request(session, tools, payload):
+        _ = (session, tools, payload)
+        yield provider_base.ProviderStreamEvent(type="text_delta", text="你好")
+        yield provider_base.ProviderStreamEvent(
+            type="response",
+            response=provider_base.ProviderResponse(display_text="你好"),
+        )
+
+    import claude_code_thy.providers.base as provider_base
+
+    provider._stream_request = fake_stream_request  # type: ignore[method-assign]
+
+    async def run():
+        events = []
+        async for event in provider.stream_complete(session, []):
+            events.append(event)
+        return events
+
+    events = asyncio.run(run())
+
+    assert [event.type for event in events] == ["text_delta", "response"]
+    assert events[0].text == "你好"
+    assert events[1].response is not None
+    assert events[1].response.display_text == "你好"
 
 
 def test_openai_responses_provider_ignores_null_error_field(monkeypatch):

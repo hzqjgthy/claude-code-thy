@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from claude_code_thy.mcp.resources import serialize_resource_read_result
+from claude_code_thy.mcp.serializers import serialize_resource_read_result
 from claude_code_thy.mcp.utils import run_async_sync
 from claude_code_thy.tools.base import Tool, ToolContext, ToolError, ToolResult
 

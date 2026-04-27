@@ -65,3 +65,16 @@ def test_session_store_lists_recent_from_index_without_reloading_transcripts(tmp
 
     assert len(recent) == 2
     assert {item.session_id for item in recent} == {first.session_id, second.session_id}
+
+
+def test_session_store_delete_removes_transcript_and_index_entry(tmp_path):
+    """测试 `session_store_delete_removes_transcript_and_index_entry` 场景。"""
+    store = SessionStore(root_dir=tmp_path)
+    session = store.create(cwd="/tmp/project")
+    session.add_message("user", "hello")
+    store.save(session)
+
+    store.delete(session.session_id)
+
+    assert not store.path_for(session.session_id).exists()
+    assert all(item.session_id != session.session_id for item in store.list_recent())

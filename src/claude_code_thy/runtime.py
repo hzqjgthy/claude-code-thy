@@ -76,30 +76,11 @@ class ConversationRuntime:
                 )
                 self.session_store.save(session)
                 return CommandOutcome(session=session, message_added=True)
-
-            if resolution and request is not None and request.approval_key:
-                add_approved_permission(session, request.approval_key)
-
-            source_type = str(pending.get("source_type", ""))
-            if source_type == "slash_command":
-                outcome = self.command_processor.resume_pending_permission(
-                    session,
-                    pending,
-                    approved=resolution,
-                    event_handler=tool_event_handler,
-                )
-                if not outcome.suppress_task_notifications:
-                    self._append_task_notifications(outcome.session)
-                return outcome
-            if source_type == "tool_call":
-                session = await self.query_engine.resume_pending_tool_call(
-                    session,
-                    pending,
-                    approved=resolution,
-                    tool_event_handler=tool_event_handler,
-                )
-                self._append_task_notifications(session)
-                return CommandOutcome(session=session, message_added=True)
+            return await self.resolve_pending_permission(
+                session,
+                approved=resolution,
+                tool_event_handler=tool_event_handler,
+            )
 
         if prompt.startswith("/"):
             outcome = self.command_processor.process(
@@ -133,6 +114,134 @@ class ConversationRuntime:
         )
         self._append_task_notifications(session)
         return CommandOutcome(session=session, message_added=True)
+
+    async def handle_stream(
+        self,
+        session: SessionTranscript,
+        prompt: str,
+        *,
+        tool_event_handler: ToolEventHandler | None = None,
+        text_delta_handler=None,
+        message_added_handler=None,
+    ) -> CommandOutcome:
+        """处理一条输入，并在普通文本回复阶段发射增量文本事件。"""
+        prompt = prompt.strip()
+        if not prompt:
+            return CommandOutcome(session=session)
+
+        initial_message_count = len(session.messages)
+        pending = get_pending_permission(session)
+        if pending is not None:
+            outcome = await self.handle(
+                session,
+                prompt,
+                tool_event_handler=tool_event_handler,
+            )
+            self._emit_stream_messages(
+                outcome.session,
+                start_index=initial_message_count,
+                message_added_handler=message_added_handler,
+            )
+            return outcome
+
+        if prompt.startswith("/"):
+            outcome = self.command_processor.process(
+                session,
+                prompt,
+                event_handler=tool_event_handler,
+            )
+            if outcome.submit_prompt is not None:
+                original_model = session.model
+                if outcome.model_override:
+                    session.model = outcome.model_override
+                session = await self.query_engine.stream_submit(
+                    outcome.session,
+                    outcome.submit_prompt,
+                    tool_event_handler=tool_event_handler,
+                    text_delta_handler=text_delta_handler,
+                    message_added_handler=message_added_handler,
+                )
+                if outcome.model_override:
+                    session.model = original_model
+                    self.session_store.save(session)
+                if not outcome.suppress_task_notifications:
+                    task_start = len(session.messages)
+                    self._append_task_notifications(session)
+                    self._emit_stream_messages(
+                        session,
+                        start_index=task_start,
+                        message_added_handler=message_added_handler,
+                    )
+                return CommandOutcome(session=session, message_added=True)
+
+            if not outcome.suppress_task_notifications:
+                task_start = len(outcome.session.messages)
+                self._append_task_notifications(outcome.session)
+                self._emit_stream_messages(
+                    outcome.session,
+                    start_index=task_start,
+                    message_added_handler=message_added_handler,
+                )
+            self._emit_stream_messages(
+                outcome.session,
+                start_index=initial_message_count,
+                message_added_handler=message_added_handler,
+            )
+            return outcome
+
+        session = await self.query_engine.stream_submit(
+            session,
+            prompt,
+            tool_event_handler=tool_event_handler,
+            text_delta_handler=text_delta_handler,
+            message_added_handler=message_added_handler,
+        )
+        task_start = len(session.messages)
+        self._append_task_notifications(session)
+        self._emit_stream_messages(
+            session,
+            start_index=task_start,
+            message_added_handler=message_added_handler,
+        )
+        return CommandOutcome(session=session, message_added=True)
+
+    async def resolve_pending_permission(
+        self,
+        session: SessionTranscript,
+        *,
+        approved: bool,
+        tool_event_handler: ToolEventHandler | None = None,
+    ) -> CommandOutcome:
+        """显式恢复当前会话中挂起的权限确认，供 Web API 等非文本入口复用。"""
+        pending = get_pending_permission(session)
+        if pending is None:
+            return CommandOutcome(session=session)
+
+        request = pending_request(session)
+        if approved and request is not None and request.approval_key:
+            add_approved_permission(session, request.approval_key)
+
+        source_type = str(pending.get("source_type", ""))
+        if source_type == "slash_command":
+            outcome = self.command_processor.resume_pending_permission(
+                session,
+                pending,
+                approved=approved,
+                event_handler=tool_event_handler,
+            )
+            if not outcome.suppress_task_notifications:
+                self._append_task_notifications(outcome.session)
+            return outcome
+        if source_type == "tool_call":
+            session = await self.query_engine.resume_pending_tool_call(
+                session,
+                pending,
+                approved=approved,
+                tool_event_handler=tool_event_handler,
+            )
+            self._append_task_notifications(session)
+            return CommandOutcome(session=session, message_added=True)
+        return CommandOutcome(session=session)
 
     def _parse_permission_response(self, prompt: str) -> bool | None:
         """把用户输入解析成允许、拒绝或无法识别的权限回应。"""
@@ -222,3 +331,20 @@ class ConversationRuntime:
             "pending": "等待",
         }
         return mapping.get(status, status)
+
+    async def aclose(self) -> None:
+        """关闭当前对话运行期里持有的长生命周期工具资源。"""
+        await self.tool_runtime.aclose()
+
+    def _emit_stream_messages(
+        self,
+        session: SessionTranscript,
+        *,
+        start_index: int,
+        message_added_handler,
+    ) -> None:
+        """把某个索引之后新增的消息顺序发给流式消费方。"""
+        if message_added_handler is None:
+            return
+        for index in range(start_index, len(session.messages)):
+            message_added_handler(index, session.messages[index])

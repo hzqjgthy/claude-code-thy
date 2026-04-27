@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import copy
 from pathlib import Path
 
@@ -51,19 +52,48 @@ class ToolRuntime:
         session: SessionTranscript,
         *,
         surface: str = "execution",
+        allow_sync_refresh: bool = True,
     ) -> list[Tool]:
         """返回某个会话在指定面上真正可用的工具，包含动态 MCP 工具。"""
-        tools = self._tools_by_name_for_session(session)
+        tools = self._tools_by_name_for_session(
+            session,
+            allow_sync_refresh=allow_sync_refresh,
+        )
         names = selected_tools(sorted(tools), surface=surface)
         return [tools[name] for name in names]
 
-    def list_tool_specs_for_session(self, session: SessionTranscript) -> list[ToolSpec]:
+    def list_tool_specs_for_session(
+        self,
+        session: SessionTranscript,
+        *,
+        allow_sync_refresh: bool = True,
+    ) -> list[ToolSpec]:
         """导出某个会话可见工具的完整 schema 列表。"""
         context = self._build_context(session, None)
         return [
             tool.to_spec_for_context(context)
-            for tool in self.list_tools_for_session(session, surface="model")
+            for tool in self.list_tools_for_session(
+                session,
+                surface="model",
+                allow_sync_refresh=allow_sync_refresh,
+            )
         ]
+
+    async def warm_tool_specs_for_session(self, session: SessionTranscript) -> None:
+        """在共享 MCP runner 上预热动态工具缓存，同时不阻塞当前事件循环。"""
+        context = self._build_context(session, None)
+        if context.services is None:
+            return
+        manager = context.services.mcp_manager
+        if manager.cached_tools():
+            return
+        try:
+            await asyncio.to_thread(
+                run_async_sync,
+                manager.refresh_all(),
+            )
+        except Exception:
+            return
 
     def has_tool_for_session(
         self,
@@ -88,6 +118,32 @@ class ToolRuntime:
         if context.services is None:
             raise ToolError("工具服务未初始化")
         return context.services
+
+    async def aclose(self) -> None:
+        """关闭当前 runtime 持有的长连接服务，避免一次性进程退出时泄漏资源。"""
+        seen: set[int] = set()
+        for state in self._session_states.values():
+            services = state.services
+            if services is None:
+                continue
+            marker = id(services)
+            if marker in seen:
+                continue
+            seen.add(marker)
+            close_all = getattr(services.mcp_manager, "close_all", None)
+            close_all_sync = getattr(services.mcp_manager, "close_all_sync", None)
+            if callable(close_all_sync):
+                try:
+                    await asyncio.to_thread(close_all_sync)
+                except Exception:
+                    continue
+                continue
+            if close_all is None:
+                continue
+            try:
+                await close_all()
+            except Exception:
+                continue
 
     def execute(
         self,
@@ -316,9 +372,17 @@ class ToolRuntime:
             return self._resolve_mcp_tool(session, tool_name)
         return None
 
-    def _tools_by_name_for_session(self, session: SessionTranscript) -> dict[str, Tool]:
+    def _tools_by_name_for_session(
+        self,
+        session: SessionTranscript,
+        *,
+        allow_sync_refresh: bool = True,
+    ) -> dict[str, Tool]:
         """收集当前会话的静态和动态工具，并按工具名去重。"""
-        dynamic = self._dynamic_tools_for_session(session)
+        dynamic = self._dynamic_tools_for_session(
+            session,
+            allow_sync_refresh=allow_sync_refresh,
+        )
         tools = {tool.name: tool for tool in self.list_tools()}
         tools.update({tool.name: tool for tool in dynamic})
         return tools
@@ -370,14 +434,19 @@ class ToolRuntime:
                 return self._wrap_mcp_definition(actual_name, definition)
         return None
 
-    def _dynamic_tools_for_session(self, session: SessionTranscript) -> list[Tool]:
+    def _dynamic_tools_for_session(
+        self,
+        session: SessionTranscript,
+        *,
+        allow_sync_refresh: bool = True,
+    ) -> list[Tool]:
         """从 MCP 运行时快照中构造当前会话可见的动态工具列表。"""
         context = self._build_context(session, None)
         if context.services is None:
             return []
         manager = context.services.mcp_manager
         cached_tools = manager.cached_tools()
-        if not cached_tools:
+        if allow_sync_refresh and not cached_tools:
             try:
                 run_async_sync(manager.refresh_all())
             except Exception:

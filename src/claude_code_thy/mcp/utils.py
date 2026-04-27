@@ -50,6 +50,7 @@ class _BackgroundAsyncRunner:
         loop = asyncio.new_event_loop()
         self._loop = loop
         asyncio.set_event_loop(loop)
+        loop.set_exception_handler(_shared_runner_exception_handler)
         self._ready.set()
         try:
             loop.run_forever()
@@ -95,6 +96,62 @@ class _BackgroundAsyncRunner:
 
 _runner_lock = threading.Lock()
 _runner: _BackgroundAsyncRunner | None = None
+
+
+def _shared_runner_exception_handler(
+    loop: asyncio.AbstractEventLoop,
+    context: dict[str, Any],
+) -> None:
+    """定向吞掉 MCP HTTP 客户端在 async generator 关闭阶段的已知噪音。"""
+    if _should_suppress_mcp_exception_context(context):
+        return
+    loop.default_exception_handler(context)
+
+
+def install_mcp_exception_handler(loop: asyncio.AbstractEventLoop) -> None:
+    """为当前事件循环安装 MCP 已知清理噪音过滤器。"""
+    previous = loop.get_exception_handler()
+
+    def _handler(current_loop: asyncio.AbstractEventLoop, context: dict[str, Any]) -> None:
+        """优先吞掉已知 MCP 清理异常，其余交还原处理器。"""
+        if _should_suppress_mcp_exception_context(context):
+            return
+        if previous is not None:
+            previous(current_loop, context)
+            return
+        current_loop.default_exception_handler(context)
+
+    loop.set_exception_handler(_handler)
+
+
+def _should_suppress_mcp_exception_context(context: dict[str, Any]) -> bool:
+    """判断一个事件循环异常上下文是否属于已知 MCP 清理噪音。"""
+    message = str(context.get("message", ""))
+    asyncgen = context.get("asyncgen")
+    if (
+        "an error occurred during closing of asynchronous generator" in message
+        and asyncgen is not None
+        and _asyncgen_name(asyncgen) in {"streamable_http_client", "stdio_client"}
+    ):
+        return True
+    handle = context.get("handle")
+    exception = context.get("exception")
+    if (
+        message.startswith("Exception in callback TaskGroup._spawn")
+        and isinstance(exception, RuntimeError)
+        and "Event loop is closed" in str(exception)
+        and handle is not None
+    ):
+        return True
+    return False
+
+
+def _asyncgen_name(asyncgen: object) -> str:
+    """尽量从 async generator 对象上提取底层函数名。"""
+    code = getattr(asyncgen, "ag_code", None)
+    if code is not None:
+        return str(getattr(code, "co_name", "") or "")
+    return str(getattr(asyncgen, "__name__", "") or "")
 
 
 def _shared_runner() -> _BackgroundAsyncRunner:

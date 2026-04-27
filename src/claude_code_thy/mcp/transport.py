@@ -48,6 +48,10 @@ class McpTransportLayer:
         """把设置里的工具调用超时毫秒值转换成秒。"""
         return max(self.settings.mcp.tool_call_timeout_ms / 1000, 1.0)
 
+    def close_timeout_seconds(self) -> float:
+        """限制 MCP 清理阶段的最长等待时间，避免关闭卡住整个 CLI。"""
+        return max(min(self.connect_timeout_seconds(), 5.0), 3.0)
+
     async def get_persistent_handle(
         self,
         name: str,
@@ -97,7 +101,7 @@ class McpTransportLayer:
         """关闭并移除一个持久连接句柄。"""
         handle = self._handles.pop(name, None)
         if handle is not None:
-            await handle.stack.aclose()
+            await self.close_stack_quietly(handle.stack)
 
     async def close_all(self) -> None:
         """关闭所有持久连接。"""
@@ -163,6 +167,9 @@ class McpTransportLayer:
             )
             await session.initialize()
             return _ManagedConnection(config=config, stack=stack, session=session)
+        except asyncio.CancelledError as error:
+            await self.close_stack_quietly(stack)
+            raise McpRuntimeError("MCP session initialization was cancelled") from error
         except Exception:
             await self.close_stack_quietly(stack)
             raise
@@ -183,13 +190,22 @@ class McpTransportLayer:
             return await operation()
         except asyncio.TimeoutError as error:
             raise McpRuntimeError(timeout_message or "MCP request timed out") from error
+        except asyncio.CancelledError as error:
+            raise McpRuntimeError("MCP request was cancelled") from error
         except Exception as error:
             raise McpRuntimeError(str(error)) from error
 
     async def close_stack_quietly(self, stack: AsyncExitStack) -> None:
         """静默关闭 AsyncExitStack，不把清理异常继续抛出。"""
         try:
-            await stack.aclose()
+            await asyncio.wait_for(
+                stack.aclose(),
+                timeout=self.close_timeout_seconds(),
+            )
+        except asyncio.CancelledError:
+            pass
+        except asyncio.TimeoutError:
+            pass
         except Exception:
             pass
 

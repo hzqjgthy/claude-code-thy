@@ -1,4 +1,3 @@
-from .common import *
 from .guards import check_secret_like_content, validate_settings_file_content
 
 __all__ = [

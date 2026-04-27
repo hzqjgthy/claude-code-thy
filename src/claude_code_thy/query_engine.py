@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+from typing import Callable
 
-from claude_code_thy.models import SessionTranscript
+from claude_code_thy.models import ChatMessage, SessionTranscript
 from claude_code_thy.session.runtime_state import clear_pending_permission, set_pending_permission
-from claude_code_thy.providers.base import Provider, ProviderError
+from claude_code_thy.providers.base import Provider, ProviderError, ProviderResponse
 from claude_code_thy.session.store import SessionStore
 from claude_code_thy.tools import (
     PermissionRequiredError,
@@ -13,6 +14,9 @@ from claude_code_thy.tools import (
     ToolEventHandler,
     ToolRuntime,
 )
+
+TextDeltaHandler = Callable[[str], None]
+MessageAddedHandler = Callable[[int, ChatMessage], None]
 
 
 class QueryEngine:
@@ -48,6 +52,30 @@ class QueryEngine:
         return await self._complete_until_pause(
             session,
             tool_event_handler=tool_event_handler,
+        )
+
+    async def stream_submit(
+        self,
+        session: SessionTranscript,
+        prompt: str,
+        *,
+        tool_event_handler: ToolEventHandler | None = None,
+        text_delta_handler: TextDeltaHandler | None = None,
+        message_added_handler: MessageAddedHandler | None = None,
+    ) -> SessionTranscript:
+        """把用户输入写入会话后，以流式方式推进整轮“模型 -> 工具 -> 模型”。"""
+        session.add_message(
+            "user",
+            prompt,
+            content_blocks=[{"type": "text", "text": prompt}],
+        )
+        self.session_store.save(session)
+        self._emit_message_added(session, message_added_handler)
+        return await self._complete_until_pause_stream(
+            session,
+            tool_event_handler=tool_event_handler,
+            text_delta_handler=text_delta_handler,
+            message_added_handler=message_added_handler,
         )
 
     async def resume_pending_tool_call(
@@ -141,9 +169,13 @@ class QueryEngine:
         """循环执行“模型回复 -> 工具调用”，直到拿到最终文本或需要暂停。"""
         for _ in range(self.max_iterations):
             try:
+                await self.tool_runtime.warm_tool_specs_for_session(session)
                 response = await self.provider.complete(
                     session,
-                    self.tool_runtime.list_tool_specs_for_session(session),
+                    self.tool_runtime.list_tool_specs_for_session(
+                        session,
+                        allow_sync_refresh=False,
+                    ),
                 )
             except ProviderError as error:
                 session.add_message("assistant", f"API 调用失败：{error}")
@@ -234,6 +266,120 @@ class QueryEngine:
             f"工具调用轮次超出限制（{self.max_iterations}），已停止自动执行。",
         )
         self.session_store.save(session)
+        return session
+
+    async def _complete_until_pause_stream(
+        self,
+        session: SessionTranscript,
+        *,
+        tool_event_handler: ToolEventHandler | None = None,
+        text_delta_handler: TextDeltaHandler | None = None,
+        message_added_handler: MessageAddedHandler | None = None,
+    ) -> SessionTranscript:
+        """循环执行流式“模型回复 -> 工具调用”，并在文本增量到达时向外发射。"""
+        for _ in range(self.max_iterations):
+            try:
+                await self.tool_runtime.warm_tool_specs_for_session(session)
+                response = await self._stream_provider_response(
+                    session,
+                    text_delta_handler=text_delta_handler,
+                )
+            except ProviderError as error:
+                session.add_message("assistant", f"API 调用失败：{error}")
+                self.session_store.save(session)
+                self._emit_message_added(session, message_added_handler)
+                return session
+
+            session.add_message(
+                "assistant",
+                response.display_text,
+                content_blocks=response.content_blocks,
+                metadata={
+                    "tool_calls": [
+                        {"id": call.id, "name": call.name, "input": call.input}
+                        for call in response.tool_calls
+                    ]
+                }
+                if response.tool_calls
+                else None,
+            )
+            self.session_store.save(session)
+            self._emit_message_added(session, message_added_handler)
+
+            if not response.tool_calls:
+                return session
+
+            for call in response.tool_calls:
+                if tool_event_handler is not None:
+                    tool_event_handler(
+                        ToolEvent(
+                            tool_name=call.name,
+                            phase="queued",
+                            summary=f"准备执行 {call.name}",
+                            metadata={"input": call.input},
+                        )
+                    )
+                try:
+                    result = await self._execute_tool_input(
+                        call.name,
+                        call.input,
+                        session,
+                        tool_use_id=call.id,
+                        original_input=call.input,
+                        event_handler=tool_event_handler,
+                    )
+                except PermissionRequiredError as error:
+                    paused = self._pause_for_permission(
+                        session,
+                        error,
+                        tool_name=call.name,
+                        input_data=call.input,
+                        tool_use_id=call.id,
+                        tool_event_handler=tool_event_handler,
+                    )
+                    self._emit_message_added(session, message_added_handler)
+                    return paused
+                except ToolError as error:
+                    result_text = f"工具 `{call.name}` 执行失败：{error}"
+                    if tool_event_handler is not None:
+                        tool_event_handler(
+                            ToolEvent(
+                                tool_name=call.name,
+                                phase="error",
+                                summary=result_text,
+                            )
+                        )
+                    self._append_tool_error(
+                        session,
+                        call.name,
+                        result_text,
+                        tool_use_id=call.id,
+                    )
+                    self.session_store.save(session)
+                    self._emit_message_added(session, message_added_handler)
+                    continue
+
+                if tool_event_handler is not None:
+                    tool_event_handler(
+                        ToolEvent(
+                            tool_name=call.name,
+                            phase="result",
+                            summary=result.summary,
+                            metadata={"ok": result.ok},
+                        )
+                    )
+                self._append_tool_result(session, result, tool_use_id=call.id)
+                self.session_store.save(session)
+                self._emit_message_added(session, message_added_handler)
+                if self._should_pause_after_tool_result(call.name):
+                    return session
+
+        session.add_message(
+            "assistant",
+            f"工具调用轮次超出限制（{self.max_iterations}），已停止自动执行。",
+        )
+        self.session_store.save(session)
+        self._emit_message_added(session, message_added_handler)
         return session
 
     def _pause_for_permission(
@@ -389,3 +535,39 @@ class QueryEngine:
                 **({"tool_use_id": tool_use_id} if tool_use_id else {}),
             },
         )
+
+    async def _stream_provider_response(
+        self,
+        session: SessionTranscript,
+        *,
+        text_delta_handler: TextDeltaHandler | None = None,
+    ) -> ProviderResponse:
+        """消费 provider 的流式事件，并在结束后还原出完整 ProviderResponse。"""
+        final_response: ProviderResponse | None = None
+        async for event in self.provider.stream_complete(
+            session,
+            self.tool_runtime.list_tool_specs_for_session(
+                session,
+                allow_sync_refresh=False,
+            ),
+        ):
+            if event.type == "text_delta":
+                if text_delta_handler is not None and event.text:
+                    text_delta_handler(event.text)
+                continue
+            if event.type == "response":
+                final_response = event.response
+        if final_response is None:
+            raise ProviderError("流式响应在结束前没有返回最终结果")
+        return final_response
+
+    def _emit_message_added(
+        self,
+        session: SessionTranscript,
+        message_added_handler: MessageAddedHandler | None,
+    ) -> None:
+        """在有新消息写入会话后通知外部消费方。"""
+        if message_added_handler is None or not session.messages:
+            return
+        index = len(session.messages) - 1
+        message_added_handler(index, session.messages[index])

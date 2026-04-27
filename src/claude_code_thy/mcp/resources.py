@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from claude_code_thy.mcp.serializers import serialize_resource_read_result
 from claude_code_thy.mcp.types import McpResourceDefinition
 
 

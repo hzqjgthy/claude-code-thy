@@ -397,7 +397,7 @@ python -m claude_code_thy
 如果你想直接跑这次浏览器模块相关的自动化测试，可以在项目根目录执行：
 
 ```bash
-/Users/thy/miniforge3/envs/claude-code-thy/bin/python -m pytest tests/test_browser_tool.py tests/test_settings.py tests/test_ui_tool_views.py
+/Users/thy/miniforge3/envs/claude-code-thy/bin/python -m pytest tests/test_browser_tool.py tests/test_settings.py
 ```
 
 预期：

@@ -191,7 +191,7 @@ python -m claude_code_thy
 浏览器搜索相关的自动化测试可以这样跑：
 
 ```bash
-/Users/thy/miniforge3/envs/claude-code-thy/bin/python -m pytest tests/test_browser_search.py tests/test_browser_search_tool.py tests/test_ui_tool_views.py
+/Users/thy/miniforge3/envs/claude-code-thy/bin/python -m pytest tests/test_browser_search.py tests/test_browser_search_tool.py
 ```
 
 ## 9. 当前版本限制

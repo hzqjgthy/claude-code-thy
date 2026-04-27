@@ -29,10 +29,10 @@ def _is_unsupported_capability_error(error: McpRuntimeError) -> bool:
     return "method not found" in str(error).lower()
 
 
-def _load_optional_capability(loader):
-    """尝试加载一项可选能力，不支持时返回 `(None, True)`。"""
+async def _load_optional_capability_async(loader):
+    """在同一个事件循环内尝试加载一项可选能力。"""
     try:
-        return asyncio.run(loader()), False
+        return await loader(), False
     except McpRuntimeError as error:
         if _is_unsupported_capability_error(error):
             return None, True
@@ -55,11 +55,63 @@ def _manager_for_cwd() -> tuple[Path, McpClientManager]:
     return workspace_root, McpClientManager(workspace_root, settings)
 
 
+async def _close_manager_quietly(manager) -> None:
+    """在命令退出前尽量关闭临时 manager 持有的连接。"""
+    close_all = getattr(manager, "close_all", None)
+    if close_all is None:
+        return
+    try:
+        await close_all()
+    except Exception:
+        return
+
+
+async def _list_mcp_async(manager, *, refresh: bool):
+    """在单个事件循环中拉取 MCP 列表快照。"""
+    try:
+        if refresh:
+            return await manager.refresh_all()
+        return manager.snapshot()
+    finally:
+        await _close_manager_quietly(manager)
+
+
+async def _get_mcp_async(manager, name: str, *, refresh: bool):
+    """在单个事件循环中拉取单个 MCP server 的详情及可选能力。"""
+    try:
+        connection = await manager.get_connection(name, refresh=refresh)
+        if connection is None:
+            return None
+        tools = prompts = resources = None
+        tools_unsupported = prompts_unsupported = resources_unsupported = False
+        if connection.status == "connected":
+            tools, tools_unsupported = await _load_optional_capability_async(
+                lambda: manager.list_tools(name)
+            )
+            prompts, prompts_unsupported = await _load_optional_capability_async(
+                lambda: manager.list_prompts(name)
+            )
+            resources, resources_unsupported = await _load_optional_capability_async(
+                lambda: manager.list_resources(name)
+            )
+        return {
+            "connection": connection,
+            "tools": tools,
+            "tools_unsupported": tools_unsupported,
+            "prompts": prompts,
+            "prompts_unsupported": prompts_unsupported,
+            "resources": resources,
+            "resources_unsupported": resources_unsupported,
+        }
+    finally:
+        await _close_manager_quietly(manager)
+
+
 @mcp_app.command("list")
 def list_mcp(refresh: bool = typer.Option(True, "--refresh/--no-refresh", help="Try to connect before listing.")) -> None:
     """列出当前工作区可见的所有 MCP server。"""
     workspace_root, manager = _manager_for_cwd()
-    connections = asyncio.run(manager.refresh_all() if refresh else _snapshot_async(manager))
+    connections = asyncio.run(_list_mcp_async(manager, refresh=refresh))
     table = Table(title=f"MCP Servers · {workspace_root}")
     table.add_column("Name", style="cyan")
     table.add_column("Scope")
@@ -88,7 +140,11 @@ def get_mcp(
 ) -> None:
     """显示单个 MCP server 的详细信息。"""
     _, manager = _manager_for_cwd()
-    connection = asyncio.run(manager.get_connection(name, refresh=refresh))
+    result = asyncio.run(_get_mcp_async(manager, name, refresh=refresh))
+    if result is None:
+        console.print(f"[red]未找到 MCP server：{name}[/red]")
+        raise typer.Exit(code=1)
+    connection = result["connection"]
     if connection is None:
         console.print(f"[red]未找到 MCP server：{name}[/red]")
         raise typer.Exit(code=1)
@@ -112,9 +168,12 @@ def get_mcp(
         return
 
     if connection.status == "connected":
-        tools, tools_unsupported = _load_optional_capability(lambda: manager.list_tools(name))
-        prompts, prompts_unsupported = _load_optional_capability(lambda: manager.list_prompts(name))
-        resources, resources_unsupported = _load_optional_capability(lambda: manager.list_resources(name))
+        tools = result["tools"]
+        tools_unsupported = result["tools_unsupported"]
+        prompts = result["prompts"]
+        prompts_unsupported = result["prompts_unsupported"]
+        resources = result["resources"]
+        resources_unsupported = result["resources_unsupported"]
         console.print(f"[bold]Tools:[/bold] {_format_named_items(tools, unsupported=tools_unsupported)}")
         console.print(f"[bold]Prompts:[/bold] {_format_named_items(prompts, unsupported=prompts_unsupported)}")
         console.print(f"[bold]Resources:[/bold] {_format_named_items(resources, unsupported=resources_unsupported)}")

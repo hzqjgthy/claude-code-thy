@@ -4,7 +4,7 @@ import json
 from claude_code_thy.mcp.types import McpToolDefinition
 from claude_code_thy.models import SessionTranscript
 from claude_code_thy.config import AppConfig
-from claude_code_thy.providers.base import Provider, ProviderResponse, ToolCallRequest
+from claude_code_thy.providers.base import Provider, ProviderResponse, ProviderStreamEvent, ToolCallRequest
 from claude_code_thy.providers.openai_responses import OpenAIResponsesProvider
 from claude_code_thy.query_engine import QueryEngine
 from claude_code_thy.runtime import ConversationRuntime
@@ -92,6 +92,181 @@ def test_query_engine_runs_tool_loop(tmp_path):
     assert roles == ["user", "assistant", "tool", "assistant"]
     assert "tool loop content" in updated.messages[2].text
     assert updated.messages[-1].text == "我已经读取了文件内容。"
+
+
+def test_query_engine_stream_submit_emits_text_delta_and_persists_final_message(tmp_path):
+    """测试流式提交会先发文本增量，再把最终 assistant 消息写回 transcript。"""
+    store = SessionStore(root_dir=tmp_path / "sessions")
+    session = store.create(cwd=str(tmp_path), model="glm-4.5", provider_name="streaming-provider")
+    captured_deltas: list[str] = []
+
+    class StreamingProvider(Provider):
+        """实现一个最小的流式 provider。"""
+        name = "streaming-provider"
+
+        async def complete(self, session, tools):
+            _ = (session, tools)
+            return ProviderResponse(display_text="你好")
+
+        async def stream_complete(self, session, tools):
+            _ = (session, tools)
+            yield ProviderStreamEvent(type="text_delta", text="你")
+            yield ProviderStreamEvent(type="text_delta", text="好")
+            yield ProviderStreamEvent(
+                type="response",
+                response=ProviderResponse(
+                    display_text="你好",
+                    content_blocks=[{"type": "text", "text": "你好"}],
+                ),
+            )
+
+    engine = QueryEngine(
+        provider=StreamingProvider(),
+        session_store=store,
+        tool_runtime=ToolRuntime(build_builtin_tools()),
+    )
+
+    updated = asyncio.run(
+        engine.stream_submit(
+            session,
+            "你好",
+            text_delta_handler=captured_deltas.append,
+        )
+    )
+
+    assert captured_deltas == ["你", "好"]
+    assert [message.role for message in updated.messages] == ["user", "assistant"]
+    assert updated.messages[-1].text == "你好"
+
+
+def test_query_engine_stream_submit_emits_user_message_before_assistant(tmp_path):
+    """测试流式提交会先把正式 user 消息发给上层，再继续 assistant 流式输出。"""
+    store = SessionStore(root_dir=tmp_path / "sessions")
+    session = store.create(cwd=str(tmp_path), model="glm-4.5", provider_name="streaming-provider")
+    emitted_roles: list[str] = []
+
+    class StreamingProvider(Provider):
+        """实现一个最小的流式 provider。"""
+        name = "streaming-provider"
+
+        async def complete(self, session, tools):
+            _ = (session, tools)
+            return ProviderResponse(display_text="你好")
+
+        async def stream_complete(self, session, tools):
+            _ = (session, tools)
+            yield ProviderStreamEvent(
+                type="response",
+                response=ProviderResponse(
+                    display_text="你好",
+                    content_blocks=[{"type": "text", "text": "你好"}],
+                ),
+            )
+
+    engine = QueryEngine(
+        provider=StreamingProvider(),
+        session_store=store,
+        tool_runtime=ToolRuntime(build_builtin_tools()),
+    )
+
+    def on_message_added(index, message):
+        _ = index
+        emitted_roles.append(message.role)
+
+    asyncio.run(
+        engine.stream_submit(
+            session,
+            "你好",
+            message_added_handler=on_message_added,
+        )
+    )
+
+    assert emitted_roles[:2] == ["user", "assistant"]
+
+
+def test_query_engine_warms_dynamic_mcp_tools_before_provider_call(tmp_path):
+    """测试主链对话在调模型前会先把动态 MCP 工具预热进缓存。"""
+    store = SessionStore(root_dir=tmp_path / "sessions")
+    session = store.create(cwd=str(tmp_path), model="glm-4.5", provider_name="fake-provider")
+    captured: dict[str, object] = {}
+
+    class CapturingProvider(Provider):
+        """实现只记录收到的工具列表的 provider。"""
+        name = "capturing-provider"
+
+        async def complete(self, session, tools):
+            """记录模型侧看到的工具列表。"""
+            captured["tool_names"] = [tool.name for tool in tools]
+            return ProviderResponse(
+                display_text="ok",
+                content_blocks=[{"type": "text", "text": "ok"}],
+            )
+
+    engine = QueryEngine(
+        provider=CapturingProvider(),
+        session_store=store,
+        tool_runtime=ToolRuntime(build_builtin_tools()),
+    )
+    services = engine.tool_runtime.services_for(session)
+
+    class DummyMgr:
+        """表示只在异步 refresh 后才出现动态工具的 MCP manager。"""
+        def __init__(self) -> None:
+            """初始化实例状态。"""
+            self.refresh_calls = 0
+            self.loaded = False
+
+        async def refresh_all(self):
+            """模拟当前事件循环中的预热刷新。"""
+            self.refresh_calls += 1
+            self.loaded = True
+            return []
+
+        def cached_tools(self):
+            """在预热前返回空缓存，预热后返回一个动态工具。"""
+            if not self.loaded:
+                return {}
+            return {
+                "demo": [
+                    McpToolDefinition(
+                        name="check_login_status",
+                        description="check login",
+                        input_schema={"type": "object", "properties": {}, "required": []},
+                        annotations={"readOnlyHint": True, "original_name": "check_login_status"},
+                    )
+                ]
+            }
+
+        def cached_prompts(self):
+            """返回空 prompts 缓存。"""
+            return {}
+
+        def cached_resources(self):
+            """返回空 resources 缓存。"""
+            return {}
+
+    manager = DummyMgr()
+    services.mcp_manager = manager
+
+    updated = asyncio.run(engine.submit(session, "你好"))
+
+    assert updated.messages[-1].text == "ok"
+    assert manager.refresh_calls == 1
+    assert captured["tool_names"] == [
+        "agent",
+        "bash",
+        "browser",
+        "browser_search",
+        "edit",
+        "glob",
+        "grep",
+        "list_mcp_resources",
+        "mcp__demo__check_login_status",
+        "read",
+        "read_mcp_resource",
+        "skill",
+        "write",
+    ]
 
 
 class _FakeOpenAIResponse:

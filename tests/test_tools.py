@@ -774,3 +774,27 @@ def test_runtime_merges_dynamic_mcp_tools(tmp_path):
     )
     assert resource_result.ok is True
     assert "hello resource" in resource_result.output
+
+
+def test_tool_runtime_aclose_prefers_sync_mcp_close(tmp_path):
+    """测试 runtime 关闭时会优先走共享 runner 的同步 MCP 清理入口。"""
+    runtime = build_runtime()
+    session = SessionTranscript(session_id="test", cwd=str(tmp_path), model="dummy")
+    services = runtime.services_for(session)
+    calls: list[str] = []
+
+    class DummyMgr:
+        """表示带同步关闭入口的 MCP manager。"""
+        def close_all_sync(self):
+            """记录同步关闭被调用。"""
+            calls.append("sync")
+
+        async def close_all(self):
+            """如果走到异步关闭，测试应失败。"""
+            calls.append("async")
+
+    services.mcp_manager = DummyMgr()
+
+    asyncio.run(runtime.aclose())
+
+    assert calls == ["sync"]

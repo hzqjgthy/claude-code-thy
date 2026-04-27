@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import time
-from pathlib import Path
 
 from claude_code_thy.tools.base import PermissionResult, Tool, ToolContext, ToolError, ToolResult
 from claude_code_thy.tools.shared.common import (

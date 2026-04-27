@@ -1,19 +1,19 @@
 # claude-code-thy
 
-`claude-code-thy` 是一个以 Python 为主实现、持续向原项目能力边界靠拢的 Claude Code 风格终端工程。
+`claude-code-thy` 是一个以 Python 为主实现、持续向原项目能力边界靠拢的 Claude Code 风格工程。
 
-它不是一个只会调用模型的简单聊天壳，也不是一个只接了几个工具的 demo。当前项目已经具备比较完整的会话、工具、后台任务、skills、MCP、TUI/CLI 主链路，并且仍在继续补齐和原项目之间的差距。
+它不是一个只会调用模型的简单聊天壳，也不是一个只接了几个工具的 demo。当前项目已经具备比较完整的会话、工具、后台任务、skills、MCP、Web/CLI 主链路，并且仍在继续补齐和原项目之间的差距。
 
 ## 项目定位
 
 当前版本重点覆盖这些能力域：
 
-- Claude Code 风格的终端交互和会话恢复
+- Claude Code 风格的 Web 交互和会话管理
 - 工具驱动的多轮推理主链路
 - 本地文件 / shell / agent / 后台任务能力
 - 本地 skills 与 MCP skills 的统一命令模型
 - MCP client、MCP server、MCP prompt / resource / skill 接入
-- 会话级权限确认、sandbox、文件历史、基础 LSP 通知
+- 会话级权限确认、sandbox、基础 LSP 通知
 
 项目目标不是完全复刻原项目内部所有约束组件，而是在保留核心能力强度的前提下，用更清晰的 Python 结构把主链路做完整。
 
@@ -21,12 +21,16 @@
 
 ### 1. 运行模式
 
-- 交互式 TUI：
+- Web API：
+  - 默认执行 `claude-code-thy` 会启动 Web API
   - `claude-code-thy`
+  - `claude-code-thy serve-web`
+- Web 前端：
+  - `cd frontend && npm run dev`
 - 无头单次执行：
   - `claude-code-thy --print "你好"`
   - `echo "你好" | claude-code-thy --print`
-- 会话恢复：
+- 会话恢复（主要用于 `--print` 无头模式）：
   - `claude-code-thy --resume <session-id>`
 - 最近会话列表：
   - `claude-code-thy --list-sessions`
@@ -35,7 +39,7 @@
 
 - 会话持久化到本地 JSON transcript
 - 自动标题生成
-- `--resume` 恢复历史上下文
+- `--resume` 恢复无头执行时的历史上下文
 - slash 命令、模型对话、工具调用统一进入同一运行时
 - 工具权限确认支持 pending/resume
 - 后台任务完成后会自动回写会话通知
@@ -109,7 +113,6 @@
 
 - 完整文件覆盖写入
 - read-before-write 保护
-- 文件历史快照
 - 结构化 diff
 - git 仓库内单文件 `git_diff`
 
@@ -130,7 +133,7 @@
 - `/task-output` 查看输出尾部
 - `/task-stop` 停止后台任务
 - 后台任务 registry 与状态恢复
-- TUI 中可看到任务相关状态更新
+- Web 前端和 transcript 中都可看到任务相关状态更新
 
 ### 6. Skills 系统
 
@@ -197,7 +200,6 @@
 - 工具级权限确认
 - 已批准权限记忆
 - sandbox policy
-- file history
 - 本地 skill 固定 roots 扫描
 - 基础 LSP 文件通知
 
@@ -206,6 +208,9 @@
 主要目录如下：
 
 ```text
+frontend/                 # Vite + React Web UI
+docs/                     # 项目文档
+
 src/claude_code_thy/
   cli.py                  # CLI 入口
   runtime.py              # 对话运行时
@@ -217,7 +222,7 @@ src/claude_code_thy/
   mcp/                    # MCP client/runtime/server/auth
   session/                # transcript 存储
   tasks/                  # 后台任务系统
-  ui/                     # Textual TUI
+  server/                 # FastAPI Web API
 ```
 
 ## 快速开始
@@ -235,8 +240,197 @@ claude-code-thy --help
 
 ```bash
 PYTHONPATH=src python -m claude_code_thy --help
-PYTHONPATH=src python -m claude_code_thy
+PYTHONPATH=src python -m claude_code_thy          # 启动 Web API
 PYTHONPATH=src python -m claude_code_thy --print "你好"
+```
+
+### Web 前端联调
+
+先启动后端 Web API：
+
+```bash
+claude-code-thy
+```
+
+或者显式指定：
+
+```bash
+claude-code-thy serve-web --host 127.0.0.1 --port 8002
+```
+
+默认后端地址：
+
+```text
+http://127.0.0.1:8002
+```
+
+后端启动后，再开一个终端运行前端：
+
+```bash
+cd frontend
+npm install --cache .npm-cache
+npm run dev
+```
+
+默认前端地址：
+
+```text
+http://127.0.0.1:3000
+```
+
+默认情况下，前端会请求：
+
+```text
+http://当前页面主机名:8002/api
+```
+
+如果你要手动指定后端地址，可以这样启动前端：
+
+```bash
+cd frontend
+VITE_API_BASE_URL=http://127.0.0.1:8002/api npm run dev
+```
+
+### 当前 Web API 已实现的核心路由
+
+#### 基础路由
+
+```text
+GET /api/health
+GET /api/runtime
+```
+
+#### 会话路由
+
+```text
+GET    /api/sessions
+POST   /api/sessions
+GET    /api/sessions/{session_id}
+DELETE /api/sessions/{session_id}
+GET    /api/sessions/{session_id}/messages
+```
+
+#### 聊天路由
+
+```text
+POST /api/chat
+```
+
+支持两种模式：
+
+- `stream=false`：普通 JSON 返回
+- `stream=true`：SSE 事件流返回
+
+#### 权限确认路由
+
+```text
+GET  /api/sessions/{session_id}/pending-permission
+POST /api/sessions/{session_id}/pending-permission/resolve
+```
+
+#### 右侧面板路由
+
+```text
+GET /api/sessions/{session_id}/tools
+GET /api/sessions/{session_id}/skills
+GET /api/sessions/{session_id}/mcp
+GET /api/sessions/{session_id}/tasks
+```
+
+### API 示例
+
+#### 1. 健康检查
+
+```bash
+curl http://127.0.0.1:8002/api/health
+```
+
+#### 2. 查看运行时信息
+
+```bash
+curl http://127.0.0.1:8002/api/runtime
+```
+
+#### 3. 列出会话
+
+```bash
+curl http://127.0.0.1:8002/api/sessions
+```
+
+#### 4. 新建会话
+
+```bash
+curl -X POST http://127.0.0.1:8002/api/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{}'
+```
+
+#### 5. 拉取某个会话的 transcript
+
+```bash
+curl http://127.0.0.1:8002/api/sessions/<session_id>/messages
+```
+
+#### 6. 发起一次非流式聊天
+
+```bash
+curl -X POST http://127.0.0.1:8002/api/chat \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "session_id": "<session_id>",
+    "prompt": "你好",
+    "stream": false
+  }'
+```
+
+#### 7. 发起一次 SSE 聊天
+
+```bash
+curl -N -X POST http://127.0.0.1:8002/api/chat \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "session_id": "<session_id>",
+    "prompt": "请读取 README.md",
+    "stream": true
+  }'
+```
+
+你会看到类似这些事件：
+
+```text
+event: tool_event
+data: {...}
+
+event: message
+data: {...}
+
+event: done
+data: {...}
+```
+
+#### 8. 查询当前挂起的权限请求
+
+```bash
+curl http://127.0.0.1:8002/api/sessions/<session_id>/pending-permission
+```
+
+#### 9. 同意一个挂起的权限请求
+
+```bash
+curl -X POST http://127.0.0.1:8002/api/sessions/<session_id>/pending-permission/resolve \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "approved": true
+  }'
+```
+
+#### 10. 获取右侧面板数据
+
+```bash
+curl http://127.0.0.1:8002/api/sessions/<session_id>/tools
+curl http://127.0.0.1:8002/api/sessions/<session_id>/skills
+curl http://127.0.0.1:8002/api/sessions/<session_id>/mcp
+curl http://127.0.0.1:8002/api/sessions/<session_id>/tasks
 ```
 
 ## 安装后的源码更新说明
@@ -474,7 +668,7 @@ python -m compileall src tests
 
 更准确地说，当前项目已经具备：
 
-- 可运行的 Claude Code 风格终端主链路
+- 可运行的 Claude Code 风格 Web/CLI 主链路
 - 可用的工具系统
 - 可用的本地 skills
 - 可用的 MCP tools / prompts / resources / skills / auth 起步版

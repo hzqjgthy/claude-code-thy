@@ -19,8 +19,9 @@ class AppConfig:
     openai_responses_api_key: str | None = None
     openai_responses_base_url: str = "https://api.openai.com"
     openai_responses_reasoning_effort: str | None = None
-    openai_responses_enable_stream: bool = False
     openai_responses_use_previous_response_id: bool = False
+    web_enable_stream_output: bool = False
+    headless_enable_stream_output: bool = False
     api_timeout_ms: int = 600_000
     max_tokens: int = 4096
     query_max_iterations: int = 1000
@@ -40,8 +41,9 @@ class AppConfig:
         openai_model = os.environ.get("OPENAI_RESPONSES_MODEL", "gpt-5.4")
         openai_base_url = os.environ.get("OPENAI_RESPONSES_BASE_URL", "https://api.openai.com")
         openai_reasoning_effort = os.environ.get("OPENAI_RESPONSES_REASONING_EFFORT", "").strip() or None
-        openai_enable_stream = _bool_env("OPENAI_RESPONSES_ENABLE_STREAM", default=False)
         openai_use_previous_response_id = _bool_env("OPENAI_RESPONSES_USE_PREVIOUS_RESPONSE_ID", default=False)
+        web_enable_stream_output = _bool_env("CLAUDE_CODE_THY_WEB_ENABLE_STREAM_OUTPUT", default=False)
+        headless_enable_stream_output = _bool_env("CLAUDE_CODE_THY_HEADLESS_ENABLE_STREAM_OUTPUT", default=False)
         timeout_ms = _int_env("API_TIMEOUT_MS", default=600_000)
         max_tokens = _int_env("CLAUDE_CODE_THY_MAX_TOKENS", default=4096)
         query_max_iterations = max(
@@ -70,8 +72,9 @@ class AppConfig:
             openai_responses_api_key=openai_api_key,
             openai_responses_base_url=openai_base_url,
             openai_responses_reasoning_effort=openai_reasoning_effort,
-            openai_responses_enable_stream=openai_enable_stream,
             openai_responses_use_previous_response_id=openai_use_previous_response_id,
+            web_enable_stream_output=web_enable_stream_output,
+            headless_enable_stream_output=headless_enable_stream_output,
             api_timeout_ms=timeout_ms,
             max_tokens=max_tokens,
             query_max_iterations=query_max_iterations,

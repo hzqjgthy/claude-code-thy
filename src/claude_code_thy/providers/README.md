@@ -742,17 +742,17 @@ ProviderResponse(
 
 #### `stream`
 
-固定写死：
+当前不是固定写死，而是由调用路径决定：
 
-```json
-false
-```
+- 普通非流式 provider 调用：`false`
+- Web / 无头逐字输出链路：`true`
 
-原因：
+是否启用“逐字冒字”不再由 provider 专属环境变量控制，而是由：
 
-- 当前项目还没有实现流式聚合
+- `CLAUDE_CODE_THY_WEB_ENABLE_STREAM_OUTPUT`
+- `CLAUDE_CODE_THY_HEADLESS_ENABLE_STREAM_OUTPUT`
 
-如果环境变量 `OPENAI_RESPONSES_ENABLE_STREAM=true`，不会真的发流式请求，而是直接报错。
+这两个全局输出开关控制。
 
 #### `parallel_tool_calls`
 

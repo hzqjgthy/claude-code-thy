@@ -10,7 +10,6 @@ from claude_code_thy.skills import PromptCommandSpec, build_mcp_prompt_specs, bu
 
 from .auth import supports_oauth
 from .client import McpClientManager, McpRuntimeError
-from .names import build_mcp_tool_name
 from .transport import _ManagedConnection
 from .types import McpServerConfig, McpServerConnection, McpToolDefinition
 from .utils import run_async_sync
@@ -173,6 +172,15 @@ class McpRuntimeManager:
         except McpRuntimeError as error:
             self._handle_auth_error(server_name, error)
             raise
+
+    async def close_all(self) -> None:
+        """关闭所有底层 MCP 连接，并清空通知注册状态。"""
+        await self._client.close_all()
+        self._notification_registered.clear()
+
+    def close_all_sync(self) -> None:
+        """在共享 MCP runner 上同步关闭所有底层连接。"""
+        run_async_sync(self.close_all(), timeout=60)
 
     def cached_tools(self) -> dict[str, list[McpToolDefinition]]:
         """返回工具缓存；对需要认证的服务暴露伪造的 auth tool。"""

@@ -5,9 +5,18 @@ import json
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+import httpx
+
 from claude_code_thy.config import AppConfig
 from claude_code_thy.models import ChatMessage, SessionTranscript
-from claude_code_thy.providers.base import Provider, ProviderError, ProviderResponse, ToolCallRequest
+from claude_code_thy.providers.base import (
+    Provider,
+    ProviderError,
+    ProviderResponse,
+    ProviderStreamEvent,
+    ToolCallRequest,
+    iter_sse_events,
+)
 from claude_code_thy.tools.base import ToolSpec
 
 
@@ -31,16 +40,37 @@ class OpenAIResponsesProvider(Provider):
         """在线程池中发起同步 HTTP 请求，避免阻塞事件循环。"""
         return await asyncio.to_thread(self._request, session, tools)
 
+    async def stream_complete(
+        self,
+        session: SessionTranscript,
+        tools: list[ToolSpec],
+    ):
+        """以 SSE 方式流式拉取 Responses 结果，并产出标准化增量事件。"""
+        payload = self._build_payload(session, tools)
+        try:
+            async for event in self._stream_request(session, tools, payload):
+                yield event
+        except httpx.HTTPStatusError as error:
+            if "previous_response_id" in payload:
+                state = self._provider_state(session)
+                state["use_previous_response_id"] = False
+                fallback_payload = self._build_payload(session, tools, force_full_history=True)
+                try:
+                    async for event in self._stream_request(session, tools, fallback_payload):
+                        yield event
+                except httpx.HTTPStatusError as fallback_error:
+                    raise await self._httpx_error(fallback_error) from fallback_error
+            else:
+                raise await self._httpx_error(error) from error
+        except httpx.HTTPError as error:
+            raise ProviderError(str(error)) from error
+
     def _request(
         self,
         session: SessionTranscript,
         tools: list[ToolSpec],
     ) -> ProviderResponse:
         """发送一次 Responses 请求，并把返回结果整理成统一 ProviderResponse。"""
-        if self.config.openai_responses_enable_stream:
-            raise ProviderError(
-                "当前 openai-responses provider 暂未启用流式聚合，请先将 OPENAI_RESPONSES_ENABLE_STREAM=false。"
-            )
         state = self._provider_state(session)
         payload = self._build_payload(session, tools)
 
@@ -85,6 +115,77 @@ class OpenAIResponsesProvider(Provider):
             tool_calls=tool_calls,
         )
 
+    async def _stream_request(
+        self,
+        session: SessionTranscript,
+        tools: list[ToolSpec],
+        payload: dict[str, object],
+    ):
+        """发起一条流式 Responses 请求，并把增量文本和最终响应统一输出。"""
+        stream_payload = dict(payload)
+        stream_payload["stream"] = True
+        endpoint = self._build_endpoint(self.config.openai_responses_base_url)
+        timeout_s = self.config.api_timeout_ms / 1000
+        text_parts: list[str] = []
+        completed_response: ProviderResponse | None = None
+        pending_tool_calls: dict[str, dict[str, object]] = {}
+
+        async with httpx.AsyncClient(
+            headers=self._headers(),
+            timeout=httpx.Timeout(timeout_s, connect=timeout_s),
+        ) as client:
+            async with client.stream("POST", endpoint, json=stream_payload) as response:
+                response.raise_for_status()
+                async for sse in iter_sse_events(response):
+                    if sse.data == "[DONE]":
+                        break
+                    try:
+                        data = json.loads(sse.data)
+                    except json.JSONDecodeError:
+                        continue
+                    if not isinstance(data, dict):
+                        continue
+
+                    event_type = str(data.get("type") or sse.event or "").strip()
+                    if event_type == "response.output_text.delta":
+                        delta = str(data.get("delta", ""))
+                        if delta:
+                            text_parts.append(delta)
+                            yield ProviderStreamEvent(type="text_delta", text=delta)
+                        continue
+                    if event_type == "response.output_item.added":
+                        self._capture_stream_tool_item(pending_tool_calls, data.get("item"))
+                        continue
+                    if event_type == "response.output_item.done":
+                        self._capture_stream_tool_item(pending_tool_calls, data.get("item"))
+                        continue
+                    if event_type == "response.function_call_arguments.delta":
+                        item_id = str(data.get("item_id", "")).strip()
+                        delta = str(data.get("delta", ""))
+                        if item_id and delta:
+                            pending_tool_calls.setdefault(item_id, {}).setdefault("arguments_parts", []).append(delta)
+                        continue
+                    if event_type == "response.function_call_arguments.done":
+                        item_id = str(data.get("item_id", "")).strip()
+                        arguments = str(data.get("arguments", ""))
+                        if item_id:
+                            pending_tool_calls.setdefault(item_id, {})["arguments"] = arguments
+                        continue
+                    if event_type == "response.completed":
+                        response_payload = data.get("response")
+                        if isinstance(response_payload, dict):
+                            completed_response = self._provider_response_from_payload(
+                                session,
+                                response_payload,
+                            )
+                        continue
+                    if event_type == "error":
+                        raise ProviderError(self._stringify_error(data.get("error") or data))
+
+        if completed_response is None:
+            completed_response = self._fallback_stream_response(session, text_parts, pending_tool_calls)
+        yield ProviderStreamEvent(type="response", response=completed_response)
+
     def _build_payload(
         self,
         session: SessionTranscript,
@@ -123,6 +224,88 @@ class OpenAIResponsesProvider(Provider):
         )
         with urlopen(request, timeout=self.config.api_timeout_ms / 1000) as response:
             return json.loads(response.read().decode("utf-8"))
+
+    def _provider_response_from_payload(
+        self,
+        session: SessionTranscript,
+        payload: dict[str, object],
+    ) -> ProviderResponse:
+        """把完整 Responses payload 转换成统一 ProviderResponse，并更新会话状态。"""
+        output = payload.get("output", [])
+        if not isinstance(output, list):
+            raise ProviderError("响应中没有有效 output 列表")
+
+        display_text = self._extract_output_text(output)
+        tool_calls = self._extract_tool_calls(output)
+        if not display_text and not tool_calls:
+            raise ProviderError("响应中没有可显示文本或可执行工具调用")
+
+        response_id = str(payload.get("id", "")).strip()
+        if response_id:
+            state = self._provider_state(session)
+            state["last_response_id"] = response_id
+            state["last_response_message_count"] = len(session.messages) + 1
+
+        return ProviderResponse(
+            display_text=display_text,
+            content_blocks=output,
+            tool_calls=tool_calls,
+        )
+
+    def _fallback_stream_response(
+        self,
+        session: SessionTranscript,
+        text_parts: list[str],
+        pending_tool_calls: dict[str, dict[str, object]],
+    ) -> ProviderResponse:
+        """在没有 response.completed 全量载荷时，用流式累积结果兜底构造响应。"""
+        tool_calls: list[ToolCallRequest] = []
+        for builder in pending_tool_calls.values():
+            name = str(builder.get("name", "")).strip()
+            call_id = str(builder.get("call_id") or builder.get("id") or "").strip()
+            if not name or not call_id:
+                continue
+            arguments = str(builder.get("arguments", "")).strip()
+            if not arguments:
+                parts = builder.get("arguments_parts", [])
+                if isinstance(parts, list):
+                    arguments = "".join(str(part) for part in parts)
+            tool_calls.append(
+                ToolCallRequest(
+                    id=call_id,
+                    name=name,
+                    input=self._parse_json_object(arguments),
+                )
+            )
+        display_text = "".join(text_parts)
+        if not display_text and not tool_calls:
+            raise ProviderError("流式响应在结束前没有生成文本或工具调用")
+        return ProviderResponse(
+            display_text=display_text,
+            content_blocks=[],
+            tool_calls=tool_calls,
+        )
+
+    def _capture_stream_tool_item(
+        self,
+        pending_tool_calls: dict[str, dict[str, object]],
+        item: object,
+    ) -> None:
+        """从流式 output item 中提取 function_call 的标识和基础元数据。"""
+        if not isinstance(item, dict):
+            return
+        if str(item.get("type", "")).strip() != "function_call":
+            return
+        item_id = str(item.get("id", "")).strip()
+        if not item_id:
+            return
+        builder = pending_tool_calls.setdefault(item_id, {})
+        builder["id"] = item_id
+        builder["call_id"] = str(item.get("call_id") or item_id).strip()
+        builder["name"] = str(item.get("name", "")).strip()
+        arguments = str(item.get("arguments", "")).strip()
+        if arguments:
+            builder["arguments"] = arguments
 
     def _previous_response_id_for_request(self, session: SessionTranscript) -> str | None:
         """在启用该特性时，取出上一轮返回的 response id 供续写使用。"""
@@ -391,3 +574,11 @@ class OpenAIResponsesProvider(Provider):
         except Exception:
             message = str(error)
         return ProviderError(f"HTTP {error.code}: {message}")
+
+    async def _httpx_error(self, error: httpx.HTTPStatusError) -> ProviderError:
+        """尽量读取异步 HTTP 错误响应体，生成更完整的异常信息。"""
+        try:
+            message = (await error.response.aread()).decode("utf-8", errors="replace")
+        except Exception:
+            message = str(error)
+        return ProviderError(f"HTTP {error.response.status_code}: {message}")

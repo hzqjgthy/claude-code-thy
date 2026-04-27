@@ -1,10 +1,14 @@
 from claude_code_thy.config import AppConfig
+import claude_code_thy.config as config_module
 
 
 def test_app_config_defaults_without_api_credentials(monkeypatch):
     """测试 `app_config_defaults_without_api_credentials` 场景。"""
-    monkeypatch.delenv("CLAUDE_CODE_THY_PROVIDER", raising=False)
+    monkeypatch.setattr(config_module, "_DOTENV_LOADED", True)
+    monkeypatch.setenv("CLAUDE_CODE_THY_PROVIDER", "unconfigured")
     monkeypatch.delenv("CLAUDE_CODE_THY_MODEL", raising=False)
+    monkeypatch.delenv("CLAUDE_CODE_THY_WEB_ENABLE_STREAM_OUTPUT", raising=False)
+    monkeypatch.delenv("CLAUDE_CODE_THY_HEADLESS_ENABLE_STREAM_OUTPUT", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
     monkeypatch.delenv("ANTHROPIC_MODEL", raising=False)
@@ -16,6 +20,8 @@ def test_app_config_defaults_without_api_credentials(monkeypatch):
     assert config.provider == "unconfigured"
     assert config.model == "glm-4.5"
     assert config.query_max_iterations == 1000
+    assert config.web_enable_stream_output is False
+    assert config.headless_enable_stream_output is False
 
 
 def test_app_config_selects_anthropic_provider(monkeypatch):
@@ -69,3 +75,14 @@ def test_app_config_reads_query_max_iterations(monkeypatch):
     config = AppConfig.from_env()
 
     assert config.query_max_iterations == 321
+
+
+def test_app_config_reads_stream_output_flags(monkeypatch):
+    """测试 Web/无头两种流式输出开关可以从环境变量读取。"""
+    monkeypatch.setenv("CLAUDE_CODE_THY_WEB_ENABLE_STREAM_OUTPUT", "true")
+    monkeypatch.setenv("CLAUDE_CODE_THY_HEADLESS_ENABLE_STREAM_OUTPUT", "1")
+
+    config = AppConfig.from_env()
+
+    assert config.web_enable_stream_output is True
+    assert config.headless_enable_stream_output is True

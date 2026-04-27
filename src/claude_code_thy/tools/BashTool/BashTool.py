@@ -28,7 +28,7 @@ from .constants import (
     MAX_INLINE_BASH_OUTPUT,
     MAX_PROGRESS_PREVIEW_LINES,
 )
-from .permissions import BashAssessment, enforce_bash_permissions
+from .permissions import enforce_bash_permissions
 from .prompt import DESCRIPTION, USAGE
 from .sed_parser import SedEditInfo, apply_sed_substitution
 from .sed_validation import sed_command_is_allowed_by_allowlist

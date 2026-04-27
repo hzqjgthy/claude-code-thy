@@ -9,6 +9,7 @@ from claude_code_thy.mcp.config import (
     get_project_mcp_config_path,
     remove_project_mcp_server,
 )
+from claude_code_thy.mcp.utils import _shared_runner_exception_handler
 from claude_code_thy.settings import AppSettings
 from claude_code_thy.mcp.utils import run_async_sync
 
@@ -103,6 +104,39 @@ def test_run_async_sync_timeout_returns_promptly():
         assert elapsed < 1
     else:
         raise AssertionError("Expected TimeoutError")
+
+
+def test_shared_runner_exception_handler_suppresses_streamable_http_asyncgen_noise():
+    """测试共享 runner 只吞掉 MCP streamable_http_client 的已知关闭噪音。"""
+
+    async def streamable_http_client():
+        """构造一个同名 async generator，模拟 MCP SDK 的关闭报错上下文。"""
+        if False:
+            yield None
+
+    class DummyLoop:
+        """记录 default_exception_handler 是否被继续调用。"""
+        def __init__(self) -> None:
+            """初始化实例状态。"""
+            self.called = False
+
+        def default_exception_handler(self, context) -> None:
+            """记录兜底异常处理是否被触发。"""
+            self.called = True
+
+    loop = DummyLoop()
+    asyncgen = streamable_http_client()
+    try:
+        _shared_runner_exception_handler(
+            loop,
+            {
+                "message": "an error occurred during closing of asynchronous generator <async_generator object streamable_http_client>",
+                "asyncgen": asyncgen,
+            },
+        )
+        assert loop.called is False
+    finally:
+        asyncio.run(asyncgen.aclose())
 
 
 def test_mcp_call_tool_times_out(tmp_path):

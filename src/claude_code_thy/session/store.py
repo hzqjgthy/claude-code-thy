@@ -104,6 +104,15 @@ class SessionStore:
         """返回某个会话在磁盘上的 JSON 文件路径。"""
         return self.root_dir / f"{session_id}.json"
 
+    def delete(self, session_id: str) -> None:
+        """删除一个会话 transcript，并同步更新摘要索引。"""
+        path = self.path_for(session_id)
+        if not path.exists():
+            raise FileNotFoundError(f"Session not found: {session_id}")
+        path.unlink()
+        self._remove_summary(session_id)
+        self._write_index()
+
     def list_recent(self, limit: int = 20) -> list[SessionSummary]:
         """优先从索引读取最近会话摘要，索引缺失时才退回全量扫描。"""
         summaries = self._load_or_rebuild_index()

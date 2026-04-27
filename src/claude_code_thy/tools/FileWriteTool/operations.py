@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from claude_code_thy.tools.base import ToolContext, ToolError
-from claude_code_thy.tools.shared.text_files import TextFileSnapshot, read_text_snapshot, write_text_snapshot
+from claude_code_thy.tools.shared.text_files import read_text_snapshot, write_text_snapshot
 from claude_code_thy.tools.shared.common import (
     _display_path,
     _ensure_full_read_before_write,
