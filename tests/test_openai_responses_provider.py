@@ -5,6 +5,7 @@ from urllib.error import HTTPError
 
 from claude_code_thy.config import AppConfig
 from claude_code_thy.models import SessionTranscript
+from claude_code_thy.prompts.types import PromptBundle, PromptContextData, RenderedPrompt
 from claude_code_thy.providers.base import ProviderError
 from claude_code_thy.providers.openai_responses import OPENAI_RESPONSES_STATE_KEY, OpenAIResponsesProvider
 from claude_code_thy.tools.base import ToolSpec
@@ -164,6 +165,54 @@ def test_openai_responses_provider_rewrites_assistant_text_history_as_user_conte
     assert "上一轮助手回复" in items[1]["content"][0]["text"]
     assert "你好！有什么我可以帮你的吗？" in items[1]["content"][0]["text"]
     assert items[2]["role"] == "user"
+
+
+def test_openai_responses_provider_injects_instructions_and_user_context():
+    """测试 Responses payload 会注入 instructions 和 user meta context。"""
+    config = AppConfig(
+        provider="openai-responses-compatible",
+        model="gpt-5.4",
+        openai_responses_api_key="test-openai-key",
+    )
+    provider = OpenAIResponsesProvider(config)
+    session = SessionTranscript(session_id="s1", cwd="/tmp", model="gpt-5.4", provider_name=provider.name)
+    session.add_message("user", "你好", content_blocks=[{"type": "text", "text": "你好"}])
+    prompt = RenderedPrompt(
+        bundle=PromptBundle(
+            session_id="s1",
+            provider_name=provider.name,
+            model="gpt-5.4",
+            workspace_root="/tmp",
+            sections=[],
+            context_data=PromptContextData(variables={}),
+        ),
+        system_text="SYSTEM RULES",
+        user_context_text="USER META CONTEXT",
+    )
+
+    payload = provider._build_payload(session, [], prompt=prompt)
+
+    assert payload["instructions"] == "SYSTEM RULES"
+    assert payload["input"][0]["role"] == "user"
+    assert payload["input"][0]["content"][0]["text"] == "USER META CONTEXT"
+    assert payload["input"][1]["content"][0]["text"] == "你好"
+
+
+def test_openai_responses_provider_build_request_preview_redacts_headers():
+    """测试 Responses 请求预览会脱敏 Authorization 请求头。"""
+    config = AppConfig(
+        provider="openai-responses-compatible",
+        model="gpt-5.4",
+        openai_responses_api_key="test-openai-key",
+        openai_responses_base_url="https://example.com",
+    )
+    provider = OpenAIResponsesProvider(config)
+    session = SessionTranscript(session_id="s1", cwd="/tmp", model="gpt-5.4", provider_name=provider.name)
+
+    preview = provider.build_request_preview(session, [])
+
+    assert preview["endpoint"] == "https://example.com/v1/responses"
+    assert preview["headers"]["Authorization"] == "***"
 
 
 def test_openai_responses_provider_stores_response_id_state(monkeypatch):

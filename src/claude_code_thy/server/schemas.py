@@ -202,6 +202,32 @@ class RuntimeInfoDTO(BaseModel):
     query_max_iterations: int
 
 
+class PromptSectionDTO(BaseModel):
+    id: str
+    kind: str
+    target: str
+    order: int
+    text: str
+    source_path: str
+    source_type: str
+    relative_name: str
+    cacheable: bool = True
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class PromptPreviewDTO(BaseModel):
+    session_id: str
+    provider_name: str
+    model: str
+    workspace_root: str
+    system_text: str
+    user_context_text: str
+    sections: list[PromptSectionDTO]
+    context_values: dict[str, str] = Field(default_factory=dict)
+    debug_meta: dict[str, Any] = Field(default_factory=dict)
+    request_preview: dict[str, Any] = Field(default_factory=dict)
+
+
 class ChatTurnDTO(BaseModel):
     session: SessionDetailDTO
     new_messages: list[MessageDTO]

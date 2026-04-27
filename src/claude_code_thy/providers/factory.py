@@ -26,3 +26,12 @@ def build_provider(config: AppConfig) -> Provider:
         "未检测到可用 provider。请设置 CLAUDE_CODE_THY_PROVIDER，或补充 "
         "ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN / OPENAI_RESPONSES_API_KEY。"
     )
+
+
+def build_provider_for_name(provider_name: str, config: AppConfig) -> Provider:
+    """按 provider 名称构造实例，但不额外校验凭证，供调试预览使用。"""
+    if provider_name == "anthropic-compatible":
+        return AnthropicCompatibleProvider(config)
+    if provider_name == "openai-responses-compatible":
+        return OpenAIResponsesProvider(config)
+    raise ProviderConfigurationError(f"不支持的 provider：{provider_name}")

@@ -20,6 +20,8 @@ from .schemas import (
     MessageDTO,
     PendingPermissionDTO,
     PermissionRequestDTO,
+    PromptPreviewDTO,
+    PromptSectionDTO,
     RuntimeInfoDTO,
     SSEToolEventDTO,
     SessionDetailDTO,
@@ -423,4 +425,35 @@ def present_chat_turn(session: SessionTranscript, *, start_index: int) -> ChatTu
             for index, message in enumerate(session.messages[start_index:], start=start_index)
         ],
         pending_permission=present_pending_permission(session),
+    )
+
+
+def present_prompt_preview(rendered_prompt, *, request_preview: dict[str, object] | None = None) -> PromptPreviewDTO:
+    """把内部 RenderedPrompt 映射成调试和 Web 展示可用的 DTO。"""
+    bundle = rendered_prompt.bundle
+    return PromptPreviewDTO(
+        session_id=bundle.session_id,
+        provider_name=bundle.provider_name,
+        model=bundle.model,
+        workspace_root=bundle.workspace_root,
+        system_text=rendered_prompt.system_text,
+        user_context_text=rendered_prompt.user_context_text,
+        sections=[
+            PromptSectionDTO(
+                id=section.id,
+                kind=section.kind,
+                target=section.target,
+                order=section.order,
+                text=section.text,
+                source_path=section.source_path,
+                source_type=section.source_type,
+                relative_name=section.relative_name,
+                cacheable=section.cacheable,
+                metadata=dict(section.metadata),
+            )
+            for section in bundle.sections
+        ],
+        context_values=dict(bundle.context_data.variables),
+        debug_meta=dict(bundle.context_data.debug_meta),
+        request_preview=dict(request_preview or {}),
     )

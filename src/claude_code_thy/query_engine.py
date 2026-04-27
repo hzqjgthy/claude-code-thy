@@ -4,6 +4,7 @@ import asyncio
 from typing import Callable
 
 from claude_code_thy.models import ChatMessage, SessionTranscript
+from claude_code_thy.prompts.types import RenderedPrompt
 from claude_code_thy.session.runtime_state import clear_pending_permission, set_pending_permission
 from claude_code_thy.providers.base import Provider, ProviderError, ProviderResponse
 from claude_code_thy.session.store import SessionStore
@@ -170,12 +171,14 @@ class QueryEngine:
         for _ in range(self.max_iterations):
             try:
                 await self.tool_runtime.warm_tool_specs_for_session(session)
+                rendered_prompt = self._build_rendered_prompt(session)
                 response = await self.provider.complete(
                     session,
                     self.tool_runtime.list_tool_specs_for_session(
                         session,
                         allow_sync_refresh=False,
                     ),
+                    prompt=rendered_prompt,
                 )
             except ProviderError as error:
                 session.add_message("assistant", f"API 调用失败：{error}")
@@ -544,12 +547,14 @@ class QueryEngine:
     ) -> ProviderResponse:
         """消费 provider 的流式事件，并在结束后还原出完整 ProviderResponse。"""
         final_response: ProviderResponse | None = None
+        rendered_prompt = self._build_rendered_prompt(session)
         async for event in self.provider.stream_complete(
             session,
             self.tool_runtime.list_tool_specs_for_session(
                 session,
                 allow_sync_refresh=False,
             ),
+            prompt=rendered_prompt,
         ):
             if event.type == "text_delta":
                 if text_delta_handler is not None and event.text:
@@ -571,3 +576,15 @@ class QueryEngine:
             return
         index = len(session.messages) - 1
         message_added_handler(index, session.messages[index])
+
+    def _build_rendered_prompt(self, session: SessionTranscript) -> RenderedPrompt:
+        """为当前会话构造本轮 provider 请求要使用的渲染后 prompt。"""
+        services = self.tool_runtime.services_for(session)
+        provider_config = getattr(self.provider, "config", None)
+        resolved_model = session.model or getattr(provider_config, "model", "") or ""
+        return services.prompt_runtime.build_rendered_prompt(
+            session,
+            services,
+            provider_name=self.provider.name,
+            model=resolved_model,
+        )

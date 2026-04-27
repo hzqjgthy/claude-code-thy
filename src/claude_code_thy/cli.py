@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import sys
 from dataclasses import dataclass
@@ -14,9 +15,14 @@ from claude_code_thy.cli_mcp import mcp_app
 from claude_code_thy.config import AppConfig
 from claude_code_thy.mcp.utils import install_mcp_exception_handler
 from claude_code_thy.models import ChatMessage
-from claude_code_thy.providers import ProviderConfigurationError, build_provider
+from claude_code_thy.providers import (
+    ProviderConfigurationError,
+    build_provider,
+    build_provider_for_name,
+)
 from claude_code_thy.runtime import ConversationRuntime
 from claude_code_thy.session.store import SessionStore
+from claude_code_thy.tools import ToolRuntime, build_builtin_tools
 
 app = typer.Typer(
     add_completion=False,
@@ -24,6 +30,8 @@ app = typer.Typer(
     context_settings={"allow_extra_args": True, "ignore_unknown_options": False},
 )
 app.add_typer(mcp_app, name="mcp")
+prompt_app = typer.Typer(help="Inspect rendered prompts and prompt sections.")
+app.add_typer(prompt_app, name="prompt")
 console = Console(stderr=True)
 PRINT_SEPARATOR = "\n====================================\n"
 PRINT_TOOL_OUTPUT_LIMIT = 200
@@ -397,3 +405,75 @@ def _start_web_server(*, host: str, port: int) -> None:
         raise typer.Exit(code=1) from error
 
     uvicorn.run(create_app(), host=host, port=port, log_level="info")
+
+
+@prompt_app.command("dump")
+def prompt_dump(
+    session_id: str = typer.Option(..., "--session", help="Session ID to inspect."),
+    provider: str | None = typer.Option(
+        None,
+        "--provider",
+        help="Optional provider override for prompt rendering.",
+    ),
+) -> None:
+    """打印某个会话当前会被注入到模型请求中的 prompt 结构。"""
+    session_store = SessionStore()
+    try:
+        session = session_store.load(session_id)
+    except FileNotFoundError as error:
+        console.print(f"[red]{error}[/red]")
+        raise typer.Exit(code=1) from error
+
+    config = AppConfig.from_env()
+    provider_name = provider or session.provider_name or config.provider
+    model_name = session.model or config.model
+
+    tool_runtime = ToolRuntime(build_builtin_tools())
+    services = tool_runtime.services_for(session)
+    rendered_prompt = services.prompt_runtime.build_rendered_prompt(
+        session,
+        services,
+        provider_name=provider_name,
+        model=model_name,
+    )
+    preview_provider = build_provider_for_name(provider_name, config)
+    request_preview = preview_provider.build_request_preview(
+        session,
+        tool_runtime.list_tool_specs_for_session(
+            session,
+            allow_sync_refresh=False,
+        ),
+        prompt=rendered_prompt,
+    )
+
+    console.print(f"[bold]Session:[/bold] {session.session_id}")
+    console.print(f"[bold]Provider:[/bold] {provider_name}")
+    console.print(f"[bold]Model:[/bold] {model_name}")
+    console.print(f"[bold]Workspace:[/bold] {rendered_prompt.bundle.workspace_root}")
+    console.print()
+    console.print("[bold]Sections:[/bold]")
+    for section in rendered_prompt.bundle.sections:
+        console.print(
+            f"- {section.order} | {section.target} | {section.id} | {section.relative_name}"
+        )
+    console.print()
+    console.print("[bold]System Text:[/bold]")
+    console.print(rendered_prompt.system_text or "(empty)")
+    console.print()
+    console.print("[bold]User Context Text:[/bold]")
+    console.print(rendered_prompt.user_context_text or "(empty)")
+    console.print()
+    console.print("[bold]Context Values:[/bold]")
+    for key in sorted(rendered_prompt.bundle.context_data.variables):
+        value = rendered_prompt.bundle.context_data.variables[key]
+        preview = value if len(value) <= 400 else f"{value[:400]}..."
+        console.print(f"- {key}: {preview}")
+    console.print()
+    console.print("[bold]Debug Meta:[/bold]")
+    for key, value in rendered_prompt.bundle.context_data.debug_meta.items():
+        console.print(f"- {key}: {value}")
+    console.print()
+    console.print("[bold]Request Preview:[/bold]")
+    console.print_json(json=json.dumps(request_preview, ensure_ascii=False))
+
+    asyncio.run(tool_runtime.aclose())

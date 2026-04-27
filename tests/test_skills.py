@@ -11,9 +11,9 @@ class EchoProvider(Provider):
     """实现 `Echo` 提供方。"""
     name = "echo"
 
-    async def complete(self, session, tools):
+    async def complete(self, session, tools, prompt=None):
         """完成当前流程。"""
-        _ = tools
+        _ = (tools, prompt)
         return ProviderResponse(
             display_text=f"echo:{session.messages[-1].text}",
             content_blocks=[{"type": "text", "text": f"echo:{session.messages[-1].text}"}],
@@ -216,6 +216,7 @@ def test_skill_tool_executes_mcp_skill_from_registry(tmp_path):
         "skill",
         {"skill": "demo:review", "args": "oauth"},
         session,
+        surface="model",
     )
 
     assert result.ok is True

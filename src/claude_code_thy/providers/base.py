@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Literal
 
 from claude_code_thy.models import SessionTranscript
+from claude_code_thy.prompts.types import RenderedPrompt
 from claude_code_thy.tools.base import ToolSpec
 
 
@@ -89,6 +90,7 @@ class Provider(ABC):
         self,
         session: SessionTranscript,
         tools: list[ToolSpec],
+        prompt: RenderedPrompt | None = None,
     ) -> ProviderResponse:
         """根据会话历史和可用工具生成下一轮响应。"""
         raise NotImplementedError
@@ -97,9 +99,10 @@ class Provider(ABC):
         self,
         session: SessionTranscript,
         tools: list[ToolSpec],
+        prompt: RenderedPrompt | None = None,
     ) -> AsyncIterator[ProviderStreamEvent]:
         """默认退化成一次性完成，再把整段文本作为一个 delta 输出。"""
-        response = await self.complete(session, tools)
+        response = await self.complete(session, tools, prompt=prompt)
         if response.display_text:
             yield ProviderStreamEvent(
                 type="text_delta",
@@ -109,3 +112,35 @@ class Provider(ABC):
             type="response",
             response=response,
         )
+
+    def build_request_preview(
+        self,
+        session: SessionTranscript,
+        tools: list[ToolSpec],
+        prompt: RenderedPrompt | None = None,
+    ) -> dict[str, object]:
+        """返回当前 provider 将要发送的请求预览。"""
+        return {
+            "provider": self.name,
+            "endpoint": "",
+            "method": "POST",
+            "headers": {},
+            "json_body": {
+                "model": session.model,
+                "system_text": prompt.system_text if prompt is not None else "",
+                "user_context_text": prompt.user_context_text if prompt is not None else "",
+                "message_count": len(session.messages),
+                "tool_names": [tool.name for tool in tools],
+            },
+        }
+
+    def _redacted_headers(self, headers: dict[str, str]) -> dict[str, str]:
+        """对调试输出中的敏感请求头做脱敏。"""
+        redacted: dict[str, str] = {}
+        for key, value in headers.items():
+            lowered = key.lower()
+            if lowered in {"authorization", "x-api-key"} and value:
+                redacted[key] = "***"
+                continue
+            redacted[key] = value
+        return redacted

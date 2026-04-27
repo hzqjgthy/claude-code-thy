@@ -10,9 +10,9 @@ class DummyProvider(Provider):
     """实现 `Dummy` 提供方。"""
     name = "dummy"
 
-    async def complete(self, session, tools):
+    async def complete(self, session, tools, prompt=None):
         """完成当前流程。"""
-        _ = (session, tools)
+        _ = (session, tools, prompt)
         return ProviderResponse(
             display_text="ok",
             content_blocks=[{"type": "text", "text": "ok"}],

@@ -28,5 +28,12 @@ include-package-data = true
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+"claude_code_thy" = [
+  "prompts/sections/*.md",
+  "prompts/templates/*.md",
+  "prompts/providers/*.md",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

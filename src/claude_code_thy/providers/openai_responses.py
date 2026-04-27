@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -9,6 +10,7 @@ import httpx
 
 from claude_code_thy.config import AppConfig
 from claude_code_thy.models import ChatMessage, SessionTranscript
+from claude_code_thy.prompts.types import RenderedPrompt
 from claude_code_thy.providers.base import (
     Provider,
     ProviderError,
@@ -36,28 +38,43 @@ class OpenAIResponsesProvider(Provider):
         self,
         session: SessionTranscript,
         tools: list[ToolSpec],
+        prompt: RenderedPrompt | None = None,
     ) -> ProviderResponse:
         """在线程池中发起同步 HTTP 请求，避免阻塞事件循环。"""
-        return await asyncio.to_thread(self._request, session, tools)
+        return await asyncio.to_thread(self._request, session, tools, prompt)
 
     async def stream_complete(
         self,
         session: SessionTranscript,
         tools: list[ToolSpec],
+        prompt: RenderedPrompt | None = None,
     ):
         """以 SSE 方式流式拉取 Responses 结果，并产出标准化增量事件。"""
-        payload = self._build_payload(session, tools)
+        payload = self._build_payload(session, tools, prompt=prompt)
         try:
-            async for event in self._stream_request(session, tools, payload):
-                yield event
+            if prompt is None:
+                async for event in self._stream_request(session, tools, payload):
+                    yield event
+            else:
+                async for event in self._stream_request(session, tools, payload, prompt):
+                    yield event
         except httpx.HTTPStatusError as error:
             if "previous_response_id" in payload:
                 state = self._provider_state(session)
                 state["use_previous_response_id"] = False
-                fallback_payload = self._build_payload(session, tools, force_full_history=True)
+                fallback_payload = self._build_payload(
+                    session,
+                    tools,
+                    prompt=prompt,
+                    force_full_history=True,
+                )
                 try:
-                    async for event in self._stream_request(session, tools, fallback_payload):
-                        yield event
+                    if prompt is None:
+                        async for event in self._stream_request(session, tools, fallback_payload):
+                            yield event
+                    else:
+                        async for event in self._stream_request(session, tools, fallback_payload, prompt):
+                            yield event
                 except httpx.HTTPStatusError as fallback_error:
                     raise await self._httpx_error(fallback_error) from fallback_error
             else:
@@ -69,17 +86,23 @@ class OpenAIResponsesProvider(Provider):
         self,
         session: SessionTranscript,
         tools: list[ToolSpec],
+        prompt: RenderedPrompt | None = None,
     ) -> ProviderResponse:
         """发送一次 Responses 请求，并把返回结果整理成统一 ProviderResponse。"""
         state = self._provider_state(session)
-        payload = self._build_payload(session, tools)
+        payload = self._build_payload(session, tools, prompt=prompt)
 
         try:
             data = self._send_payload(payload)
         except HTTPError as error:
             if "previous_response_id" in payload:
                 state["use_previous_response_id"] = False
-                fallback_payload = self._build_payload(session, tools, force_full_history=True)
+                fallback_payload = self._build_payload(
+                    session,
+                    tools,
+                    prompt=prompt,
+                    force_full_history=True,
+                )
                 try:
                     data = self._send_payload(fallback_payload)
                 except HTTPError as fallback_error:
@@ -108,6 +131,7 @@ class OpenAIResponsesProvider(Provider):
         if response_id:
             state["last_response_id"] = response_id
             state["last_response_message_count"] = len(session.messages) + 1
+            state["last_prompt_fingerprint"] = self._prompt_fingerprint(prompt)
 
         return ProviderResponse(
             display_text=display_text,
@@ -120,6 +144,7 @@ class OpenAIResponsesProvider(Provider):
         session: SessionTranscript,
         tools: list[ToolSpec],
         payload: dict[str, object],
+        prompt: RenderedPrompt | None = None,
     ):
         """发起一条流式 Responses 请求，并把增量文本和最终响应统一输出。"""
         stream_payload = dict(payload)
@@ -177,6 +202,7 @@ class OpenAIResponsesProvider(Provider):
                             completed_response = self._provider_response_from_payload(
                                 session,
                                 response_payload,
+                                prompt=prompt,
                             )
                         continue
                     if event_type == "error":
@@ -190,6 +216,7 @@ class OpenAIResponsesProvider(Provider):
         self,
         session: SessionTranscript,
         tools: list[ToolSpec],
+        prompt: RenderedPrompt | None = None,
         *,
         force_full_history: bool = False,
     ) -> dict[str, object]:
@@ -200,13 +227,15 @@ class OpenAIResponsesProvider(Provider):
             "parallel_tool_calls": False,
             "max_output_tokens": self.config.max_tokens,
         }
+        if prompt is not None and prompt.system_text.strip():
+            payload["instructions"] = prompt.system_text
 
-        previous_response_id = None if force_full_history else self._previous_response_id_for_request(session)
+        previous_response_id = None if force_full_history else self._previous_response_id_for_request(session, prompt)
         if previous_response_id:
             payload["previous_response_id"] = previous_response_id
             payload["input"] = self._build_incremental_input(session)
         else:
-            payload["input"] = self._build_input(session)
+            payload["input"] = self._build_input(session, prompt=prompt)
 
         if tools:
             payload["tools"] = [self._tool_to_api(tool) for tool in tools]
@@ -225,10 +254,28 @@ class OpenAIResponsesProvider(Provider):
         with urlopen(request, timeout=self.config.api_timeout_ms / 1000) as response:
             return json.loads(response.read().decode("utf-8"))
 
+    def build_request_preview(
+        self,
+        session: SessionTranscript,
+        tools: list[ToolSpec],
+        prompt: RenderedPrompt | None = None,
+    ) -> dict[str, object]:
+        """构造一份不包含敏感认证信息的 Responses 请求预览。"""
+        payload = self._build_payload(session, tools, prompt=prompt, force_full_history=False)
+        return {
+            "provider": self.name,
+            "endpoint": self._build_endpoint(self.config.openai_responses_base_url),
+            "method": "POST",
+            "headers": self._redacted_headers(self._headers()),
+            "json_body": payload,
+        }
+
     def _provider_response_from_payload(
         self,
         session: SessionTranscript,
         payload: dict[str, object],
+        *,
+        prompt: RenderedPrompt | None = None,
     ) -> ProviderResponse:
         """把完整 Responses payload 转换成统一 ProviderResponse，并更新会话状态。"""
         output = payload.get("output", [])
@@ -245,6 +292,7 @@ class OpenAIResponsesProvider(Provider):
             state = self._provider_state(session)
             state["last_response_id"] = response_id
             state["last_response_message_count"] = len(session.messages) + 1
+            state["last_prompt_fingerprint"] = self._prompt_fingerprint(prompt)
 
         return ProviderResponse(
             display_text=display_text,
@@ -307,12 +355,19 @@ class OpenAIResponsesProvider(Provider):
         if arguments:
             builder["arguments"] = arguments
 
-    def _previous_response_id_for_request(self, session: SessionTranscript) -> str | None:
+    def _previous_response_id_for_request(
+        self,
+        session: SessionTranscript,
+        prompt: RenderedPrompt | None,
+    ) -> str | None:
         """在启用该特性时，取出上一轮返回的 response id 供续写使用。"""
         if not self.config.openai_responses_use_previous_response_id:
             return None
         state = self._provider_state(session)
         if state.get("use_previous_response_id", True) is False:
+            return None
+        stored_fingerprint = str(state.get("last_prompt_fingerprint", ""))
+        if stored_fingerprint != self._prompt_fingerprint(prompt):
             return None
         response_id = str(state.get("last_response_id", "")).strip()
         if not response_id:
@@ -329,7 +384,7 @@ class OpenAIResponsesProvider(Provider):
         state = self._provider_state(session)
         message_count = state.get("last_response_message_count")
         if not isinstance(message_count, int):
-            return self._build_input(session)
+            return self._build_input(session, prompt=None)
         new_messages = session.messages[message_count:]
         items: list[dict[str, object]] = []
         for message in new_messages:
@@ -345,12 +400,26 @@ class OpenAIResponsesProvider(Provider):
         session.runtime_state[OPENAI_RESPONSES_STATE_KEY] = fresh
         return fresh
 
-    def _build_input(self, session: SessionTranscript) -> list[dict[str, object]]:
+    def _build_input(
+        self,
+        session: SessionTranscript,
+        *,
+        prompt: RenderedPrompt | None = None,
+    ) -> list[dict[str, object]]:
         """把整个会话历史转换成 Responses API 的 input 数组。"""
         items: list[dict[str, object]] = []
+        if prompt is not None and prompt.user_context_text.strip():
+            items.append(self._message_item("user", prompt.user_context_text))
         for message in session.messages:
             items.extend(self._message_to_input_items(message))
         return items
+
+    def _prompt_fingerprint(self, prompt: RenderedPrompt | None) -> str:
+        """把当前 prompt 关键文本收敛成一个稳定指纹，用于 previous_response_id 复用判断。"""
+        if prompt is None:
+            return ""
+        payload = f"{prompt.system_text}\n\n{prompt.user_context_text}"
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
     def _message_to_input_items(self, message: ChatMessage) -> list[dict[str, object]]:
         """按消息角色把本地消息映射成 Responses API 支持的输入块。"""

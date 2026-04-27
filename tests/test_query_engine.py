@@ -16,8 +16,9 @@ class FakeProvider(Provider):
     """实现 `Fake` 提供方。"""
     name = "fake-provider"
 
-    async def complete(self, session, tools):
+    async def complete(self, session, tools, prompt=None):
         """完成当前流程。"""
+        _ = (tools, prompt)
         return ProviderResponse(
             display_text=f"echo:{session.messages[-1].text}",
             content_blocks=[{"type": "text", "text": f"echo:{session.messages[-1].text}"}],
@@ -28,8 +29,9 @@ class ToolCallingProvider(Provider):
     """实现 `ToolCalling` 提供方。"""
     name = "tool-calling-provider"
 
-    async def complete(self, session, tools):
+    async def complete(self, session, tools, prompt=None):
         """完成当前流程。"""
+        _ = (tools, prompt)
         has_tool_result = any(message.role == "tool" for message in session.messages)
         if not has_tool_result:
             return ProviderResponse(
@@ -104,12 +106,12 @@ def test_query_engine_stream_submit_emits_text_delta_and_persists_final_message(
         """实现一个最小的流式 provider。"""
         name = "streaming-provider"
 
-        async def complete(self, session, tools):
-            _ = (session, tools)
+        async def complete(self, session, tools, prompt=None):
+            _ = (session, tools, prompt)
             return ProviderResponse(display_text="你好")
 
-        async def stream_complete(self, session, tools):
-            _ = (session, tools)
+        async def stream_complete(self, session, tools, prompt=None):
+            _ = (session, tools, prompt)
             yield ProviderStreamEvent(type="text_delta", text="你")
             yield ProviderStreamEvent(type="text_delta", text="好")
             yield ProviderStreamEvent(
@@ -149,12 +151,12 @@ def test_query_engine_stream_submit_emits_user_message_before_assistant(tmp_path
         """实现一个最小的流式 provider。"""
         name = "streaming-provider"
 
-        async def complete(self, session, tools):
-            _ = (session, tools)
+        async def complete(self, session, tools, prompt=None):
+            _ = (session, tools, prompt)
             return ProviderResponse(display_text="你好")
 
-        async def stream_complete(self, session, tools):
-            _ = (session, tools)
+        async def stream_complete(self, session, tools, prompt=None):
+            _ = (session, tools, prompt)
             yield ProviderStreamEvent(
                 type="response",
                 response=ProviderResponse(
@@ -194,8 +196,9 @@ def test_query_engine_warms_dynamic_mcp_tools_before_provider_call(tmp_path):
         """实现只记录收到的工具列表的 provider。"""
         name = "capturing-provider"
 
-        async def complete(self, session, tools):
+        async def complete(self, session, tools, prompt=None):
             """记录模型侧看到的工具列表。"""
+            _ = (session, prompt)
             captured["tool_names"] = [tool.name for tool in tools]
             return ProviderResponse(
                 display_text="ok",
@@ -360,8 +363,9 @@ class DummyProvider(Provider):
     """实现 `Dummy` 提供方。"""
     name = "dummy"
 
-    async def complete(self, session, tools):
+    async def complete(self, session, tools, prompt=None):
         """完成当前流程。"""
+        _ = (session, tools, prompt)
         return ProviderResponse(display_text="done", content_blocks=[{"type": "text", "text": "done"}], tool_calls=[])
 
 
@@ -373,8 +377,9 @@ class FailIfCalledAgainProvider(Provider):
         """初始化实例状态。"""
         self.calls = 0
 
-    async def complete(self, session, tools):
+    async def complete(self, session, tools, prompt=None):
         """完成当前流程。"""
+        _ = (session, tools, prompt)
         self.calls += 1
         if self.calls > 1:
             raise AssertionError("provider.complete should not be called again after MCP tool result")
@@ -398,8 +403,8 @@ class FailIfCalledAgainProvider(Provider):
         )
 
 
-def test_runtime_explicit_mcp_tool_request_executes_without_model_tool_choice(tmp_path):
-    """测试 `runtime_explicit_mcp_tool_request_executes_without_model_tool_choice` 场景。"""
+def test_runtime_plain_text_mcp_tool_name_does_not_auto_execute_without_model_choice(tmp_path):
+    """测试普通文本里提到 MCP 工具名时，不会再由本地硬匹配直接执行。"""
     store = SessionStore(root_dir=tmp_path / "sessions")
     runtime = ConversationRuntime(provider=DummyProvider(), session_store=store)
     session = store.create(cwd=str(tmp_path), model="dummy", provider_name="dummy")
@@ -446,11 +451,11 @@ def test_runtime_explicit_mcp_tool_request_executes_without_model_tool_choice(tm
         )
     )
 
-    assert any(message.role == "tool" for message in outcome.session.messages)
+    assert not any(message.role == "tool" for message in outcome.session.messages)
 
 
-def test_runtime_approved_non_readonly_mcp_tool_does_not_prompt_again(tmp_path):
-    """测试 `runtime_approved_non_readonly_mcp_tool_does_not_prompt_again` 场景。"""
+def test_runtime_plain_text_mcp_tool_name_still_does_not_auto_execute_even_if_preapproved(tmp_path):
+    """测试即使权限已预批准，普通文本提到 MCP 工具名也不会本地硬匹配直接执行。"""
     store = SessionStore(root_dir=tmp_path / "sessions")
     runtime = ConversationRuntime(provider=DummyProvider(), session_store=store)
     session = store.create(cwd=str(tmp_path), model="dummy", provider_name="dummy")
@@ -502,7 +507,7 @@ def test_runtime_approved_non_readonly_mcp_tool_does_not_prompt_again(tmp_path):
 
     assistant_messages = [message for message in outcome.session.messages if message.role == "assistant"]
     assert not any("回复 `yes`" in message.text for message in assistant_messages)
-    assert any(message.role == "tool" for message in outcome.session.messages)
+    assert not any(message.role == "tool" for message in outcome.session.messages)
 
 
 def test_query_engine_pauses_after_mcp_tool_result_without_second_provider_round(tmp_path):

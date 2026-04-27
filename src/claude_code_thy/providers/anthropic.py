@@ -9,6 +9,7 @@ import httpx
 
 from claude_code_thy.config import AppConfig
 from claude_code_thy.models import SessionTranscript
+from claude_code_thy.prompts.types import RenderedPrompt
 from claude_code_thy.providers.base import (
     Provider,
     ProviderError,
@@ -32,17 +33,19 @@ class AnthropicCompatibleProvider(Provider):
         self,
         session: SessionTranscript,
         tools: list[ToolSpec],
+        prompt: RenderedPrompt | None = None,
     ) -> ProviderResponse:
         """在线程池中执行同步 HTTP 请求，避免阻塞事件循环。"""
-        return await asyncio.to_thread(self._request, session, tools)
+        return await asyncio.to_thread(self._request, session, tools, prompt)
 
     async def stream_complete(
         self,
         session: SessionTranscript,
         tools: list[ToolSpec],
+        prompt: RenderedPrompt | None = None,
     ):
         """以 SSE 方式流式拉取 Messages 结果，并标准化成文本增量事件。"""
-        payload = self._build_payload(session, tools, stream=True)
+        payload = self._build_payload(session, tools, prompt=prompt, stream=True)
         endpoint = self._build_endpoint(self.config.anthropic_base_url)
         timeout_s = self.config.api_timeout_ms / 1000
         text_blocks: dict[int, str] = {}
@@ -113,10 +116,11 @@ class AnthropicCompatibleProvider(Provider):
         self,
         session: SessionTranscript,
         tools: list[ToolSpec],
+        prompt: RenderedPrompt | None = None,
     ) -> ProviderResponse:
         """发送一次 messages 请求，并提取文本块和工具调用块。"""
         endpoint = self._build_endpoint(self.config.anthropic_base_url)
-        payload = self._build_payload(session, tools, stream=False)
+        payload = self._build_payload(session, tools, prompt=prompt, stream=False)
         request = Request(
             endpoint,
             data=json.dumps(payload).encode("utf-8"),
@@ -178,16 +182,20 @@ class AnthropicCompatibleProvider(Provider):
         self,
         session: SessionTranscript,
         tools: list[ToolSpec],
+        prompt: RenderedPrompt | None,
         *,
         stream: bool,
     ) -> dict[str, object]:
         """构造 Anthropic Messages 请求体。"""
+        messages = self._messages_to_api(session, prompt)
         payload: dict[str, object] = {
             "model": session.model or self.config.model,
             "max_tokens": self.config.max_tokens,
-            "messages": [self._message_to_api(message) for message in session.messages],
+            "messages": messages,
             "stream": stream,
         }
+        if prompt is not None and prompt.system_text.strip():
+            payload["system"] = prompt.system_text
         if tools:
             payload["tools"] = [
                 {
@@ -198,6 +206,23 @@ class AnthropicCompatibleProvider(Provider):
                 for tool in tools
             ]
         return payload
+
+    def _messages_to_api(
+        self,
+        session: SessionTranscript,
+        prompt: RenderedPrompt | None,
+    ) -> list[dict[str, object]]:
+        """把 user meta context 和正式会话消息统一映射成 Anthropic messages。"""
+        messages: list[dict[str, object]] = []
+        if prompt is not None and prompt.user_context_text.strip():
+            messages.append(
+                {
+                    "role": "user",
+                    "content": [{"type": "text", "text": prompt.user_context_text}],
+                }
+            )
+        messages.extend(self._message_to_api(message) for message in session.messages)
+        return messages
 
     def _headers(self) -> dict[str, str]:
         """构造 Anthropic 兼容接口所需的请求头。"""
@@ -219,6 +244,22 @@ class AnthropicCompatibleProvider(Provider):
         if normalized.endswith("/v1"):
             return f"{normalized}/messages"
         return f"{normalized}/v1/messages"
+
+    def build_request_preview(
+        self,
+        session: SessionTranscript,
+        tools: list[ToolSpec],
+        prompt: RenderedPrompt | None = None,
+    ) -> dict[str, object]:
+        """构造一份不包含敏感认证信息的 Anthropic 请求预览。"""
+        payload = self._build_payload(session, tools, prompt=prompt, stream=False)
+        return {
+            "provider": self.name,
+            "endpoint": self._build_endpoint(self.config.anthropic_base_url),
+            "method": "POST",
+            "headers": self._redacted_headers(self._headers()),
+            "json_body": payload,
+        }
 
     def _message_to_api(self, message) -> dict[str, object]:
         """把本地消息转换成 Anthropic Messages API 需要的消息结构。"""
