@@ -46,3 +46,4 @@ git branch -u origin/front_and_back
 
 切回 main
 git switch main
+查看当前分支情况 git branch -vv
