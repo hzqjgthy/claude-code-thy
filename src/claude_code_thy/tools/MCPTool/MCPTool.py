@@ -49,17 +49,31 @@ class MCPTool(Tool):
         context: ToolContext,
     ) -> PermissionResult:
         """检查 `permissions`。"""
-        _ = input_data
-        if self.is_read_only():
+        decision = context.permission_context.check_command(self.name, self.name)
+        if decision is None or (decision.allowed and not decision.requires_confirmation):
             return PermissionResult.allow(updated_input=input_data)
+
         request = context.permission_context.build_request_for_command(
             self.name,
             self.name,
-            reason=f"MCP tool `{self.name}` 来自 server `{self.server_name}`，需要权限确认。",
+            reason=(
+                decision.reason
+                if decision is not None and decision.reason
+                else f"MCP tool `{self.name}` 来自 server `{self.server_name}`，需要权限确认。"
+            ),
         )
         if request.approval_key and request.approval_key in context.permission_context.approved_permissions:
             return PermissionResult.allow(updated_input=input_data)
-        return PermissionResult.ask(request, updated_input=input_data)
+        if decision is not None and decision.requires_confirmation:
+            return PermissionResult.ask(request, updated_input=input_data)
+        return PermissionResult.deny(
+            (
+                decision.reason
+                if decision is not None and decision.reason
+                else f"MCP tool `{self.name}` 来自 server `{self.server_name}`，被权限规则拒绝。"
+            ),
+            updated_input=input_data,
+        )
 
     def execute(self, raw_args: str, context: ToolContext) -> ToolResult:
         """执行当前流程。"""
@@ -82,10 +96,15 @@ class MCPTool(Tool):
         except Exception as error:
             raise ToolError(str(error)) from error
         output_text, structured = serialize_mcp_tool_result(result)
+        is_error = bool(getattr(result, "isError", False) or getattr(result, "is_error", False))
         return ToolResult(
             tool_name=self.name,
-            ok=True,
-            summary=f"MCP tool: {self.server_name}/{self.name}",
+            ok=not is_error,
+            summary=(
+                f"MCP tool: {self.server_name}/{self.name}"
+                if not is_error
+                else f"MCP tool `{self.server_name}/{self.name}` 执行失败"
+            ),
             display_name=self.name,
             ui_kind="mcp",
             output=output_text,
@@ -93,6 +112,7 @@ class MCPTool(Tool):
                 "server_name": self.server_name,
                 "is_mcp": True,
                 "read_only": self.is_read_only(),
+                "is_error": is_error,
             },
             structured_data={
                 "server_name": self.server_name,

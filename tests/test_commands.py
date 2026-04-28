@@ -1,3 +1,5 @@
+import json
+
 from claude_code_thy.commands import CommandProcessor
 from claude_code_thy.mcp.types import McpPromptDefinition, McpServerConfig, McpServerConnection
 from claude_code_thy.session.store import SessionStore
@@ -283,8 +285,79 @@ def test_dynamic_mcp_tool_disabled_for_slash_reports_selection_error(monkeypatch
     assert "未允许通过 slash 执行" in outcome.session.messages[-1].text
 
 
-def test_dynamic_mcp_tool_permission_resume_with_empty_structured_input_succeeds(tmp_path):
-    """测试 `dynamic_mcp_tool_permission_resume_with_empty_structured_input_succeeds` 场景。"""
+def test_dynamic_mcp_tool_without_permission_rule_executes_directly(tmp_path):
+    """测试动态 `mcp__*` 工具在没配权限规则时会直接执行。"""
+    store = SessionStore(root_dir=tmp_path / "sessions")
+    processor = build_processor(store)
+    session = store.create(cwd=str(tmp_path), model="glm-4.5", provider_name="test-provider")
+    store.save(session)
+    services = processor.tool_runtime.services_for(session)
+
+    from claude_code_thy.mcp.types import McpToolDefinition
+
+    class DummyMgr:
+        """表示 `DummyMgr`。"""
+        async def refresh_all(self):
+            """刷新 `all`。"""
+            return []
+
+        def cached_tools(self):
+            """处理 `cached_tools`。"""
+            return {
+                "xiaohongshu-mcp": [
+                    McpToolDefinition(
+                        name="check_login_status",
+                        description="check login",
+                        input_schema={"type": "object", "properties": {}, "required": []},
+                        annotations={"original_name": "check_login_status"},
+                    )
+                ]
+            }
+
+        def cached_prompts(self):
+            """处理 `cached_prompts`。"""
+            return {}
+
+        def cached_resources(self):
+            """处理 `cached_resources`。"""
+            return {}
+
+        async def call_tool(self, server_name, tool_name, arguments=None):
+            """处理 `call_tool`。"""
+            return {"content": f"{server_name}:{tool_name}:{arguments}"}
+
+    services.mcp_manager = DummyMgr()
+
+    outcome = processor.process(session, "/mcp__xiaohongshu_mcp__check_login_status")
+
+    assert outcome.message_added is True
+    assert "pending_permission" not in outcome.session.runtime_state
+    assert "结构化输入" not in outcome.session.messages[-1].text
+    assert "check_login_status" in outcome.session.messages[-1].text
+
+
+def test_dynamic_mcp_tool_honors_ask_rule_from_settings_local(tmp_path):
+    """测试动态 `mcp__*` 工具会遵守 `settings.local.json` 中的 ask 规则。"""
+    settings_dir = tmp_path / ".claude-code-thy"
+    settings_dir.mkdir()
+    (settings_dir / "settings.local.json").write_text(
+        json.dumps(
+            {
+                "permissions": [
+                    {
+                        "effect": "ask",
+                        "tool": "mcp__xiaohongshu_mcp__check_login_status",
+                        "target": "command",
+                        "pattern": "mcp__xiaohongshu_mcp__check_login_status",
+                        "description": "dynamic mcp tool requires confirmation",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
     store = SessionStore(root_dir=tmp_path / "sessions")
     processor = build_processor(store)
     session = store.create(cwd=str(tmp_path), model="glm-4.5", provider_name="test-provider")
@@ -328,14 +401,143 @@ def test_dynamic_mcp_tool_permission_resume_with_empty_structured_input_succeeds
 
     prompted = processor.process(session, "/mcp__xiaohongshu_mcp__check_login_status")
     pending = prompted.session.runtime_state.get("pending_permission")
+
     assert isinstance(pending, dict)
-    assert pending.get("input_data") == {}
+    assert pending.get("tool_name") == "mcp__xiaohongshu_mcp__check_login_status"
 
     resumed = processor.resume_pending_permission(prompted.session, pending, approved=True)
 
     assert resumed.message_added is True
-    assert "结构化输入" not in resumed.session.messages[-1].text
     assert "check_login_status" in resumed.session.messages[-1].text
+
+
+def test_self_mcp_bash_without_rule_executes_like_builtin_bash(tmp_path):
+    """测试 `mcp__self_mcp__bash` 无权限规则时可直接执行。"""
+    (tmp_path / "hello.txt").write_text("hello from self mcp bash\n", encoding="utf-8")
+    store = SessionStore(root_dir=tmp_path / "sessions")
+    processor = build_processor(store)
+    session = store.create(cwd=str(tmp_path), model="glm-4.5", provider_name="test-provider")
+    store.save(session)
+    services = processor.tool_runtime.services_for(session)
+
+    from claude_code_thy.mcp.types import McpToolDefinition
+
+    class DummyMgr:
+        """表示 `DummyMgr`。"""
+        async def refresh_all(self):
+            return []
+
+        def cached_tools(self):
+            return {
+                "self_mcp": [
+                    McpToolDefinition(
+                        name="bash",
+                        description="bash via self mcp",
+                        input_schema={
+                            "type": "object",
+                            "properties": {
+                                "command": {"type": "string"},
+                                "description": {"type": "string"},
+                            },
+                            "required": ["command"],
+                        },
+                        annotations={"original_name": "bash"},
+                    )
+                ]
+            }
+
+        def cached_prompts(self):
+            return {}
+
+        def cached_resources(self):
+            return {}
+
+    services.mcp_manager = DummyMgr()
+
+    outcome = processor.process(
+        session,
+        '/mcp__self_mcp__bash {"command":"cat hello.txt","description":"读取 hello.txt"}',
+    )
+
+    assert outcome.message_added is True
+    assert "pending_permission" not in outcome.session.runtime_state
+    assert "hello from self mcp bash" in outcome.session.messages[-1].text
+
+
+def test_self_mcp_bash_ask_rule_produces_permission_prompt(tmp_path):
+    """测试 `mcp__self_mcp__bash` 命中 ask 规则时会真正进入权限确认流程。"""
+    settings_dir = tmp_path / ".claude-code-thy"
+    settings_dir.mkdir()
+    (settings_dir / "settings.local.json").write_text(
+        json.dumps(
+            {
+                "permissions": [
+                    {
+                        "effect": "ask",
+                        "tool": "mcp__self_mcp__bash",
+                        "target": "command",
+                        "pattern": "rm *",
+                        "description": "删除文件需要确认",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "hello.txt").write_text("to be deleted\n", encoding="utf-8")
+
+    store = SessionStore(root_dir=tmp_path / "sessions")
+    processor = build_processor(store)
+    session = store.create(cwd=str(tmp_path), model="glm-4.5", provider_name="test-provider")
+    store.save(session)
+    services = processor.tool_runtime.services_for(session)
+
+    from claude_code_thy.mcp.types import McpToolDefinition
+
+    class DummyMgr:
+        """表示 `DummyMgr`。"""
+        async def refresh_all(self):
+            return []
+
+        def cached_tools(self):
+            return {
+                "self_mcp": [
+                    McpToolDefinition(
+                        name="bash",
+                        description="bash via self mcp",
+                        input_schema={
+                            "type": "object",
+                            "properties": {
+                                "command": {"type": "string"},
+                                "description": {"type": "string"},
+                            },
+                            "required": ["command"],
+                        },
+                        annotations={"original_name": "bash"},
+                    )
+                ]
+            }
+
+        def cached_prompts(self):
+            return {}
+
+        def cached_resources(self):
+            return {}
+
+    services.mcp_manager = DummyMgr()
+
+    outcome = processor.process(
+        session,
+        '/mcp__self_mcp__bash {"command":"rm hello.txt","description":"删除 hello.txt"}',
+    )
+
+    assert outcome.message_added is True
+    pending = outcome.session.runtime_state.get("pending_permission")
+    assert isinstance(pending, dict)
+    assert outcome.session.messages[-1].metadata["ui_kind"] == "permission_prompt"
+    assert "删除文件需要确认" in outcome.session.messages[-1].text
+    assert "回复 `yes`" in outcome.session.messages[-1].text
 
 
 def test_dynamic_mcp_tool_slash_command_tolerates_trailing_punctuation(tmp_path):

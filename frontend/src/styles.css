@@ -253,6 +253,7 @@ button {
 
 .message-bubble-tool_result,
 .message-bubble-tool_error,
+.message-bubble-tool_interaction,
 .message-bubble-assistant_tool_call,
 .message-bubble-permission_prompt,
 .message-bubble-task_notification,
@@ -280,6 +281,7 @@ button {
 
 .tool-chip,
 .tool-result-card,
+.tool-interaction-entry,
 .info-card {
   border-radius: 14px;
   border: 1px solid rgba(23, 32, 51, 0.08);
@@ -332,6 +334,77 @@ pre,
   color: #68748c;
   font-size: 14px;
   padding: 8px 0;
+}
+
+.tool-interaction-summary {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tool-interaction-summary-text {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+}
+
+.tool-interaction-summary-meta {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: #68748c;
+  font-size: 12px;
+}
+
+.tool-interaction-body {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tool-interaction-note,
+.tool-interaction-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tool-interaction-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #526178;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.tool-interaction-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tool-interaction-entry-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.tool-interaction-result-summary {
+  color: #223450;
 }
 
 .composer {

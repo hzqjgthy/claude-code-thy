@@ -369,37 +369,41 @@ class DummyProvider(Provider):
         return ProviderResponse(display_text="done", content_blocks=[{"type": "text", "text": "done"}], tool_calls=[])
 
 
-class FailIfCalledAgainProvider(Provider):
-    """实现 `FailIfCalledAgain` 提供方。"""
-    name = "fail-if-called-again"
+class McpFollowupProvider(Provider):
+    """实现会在 MCP 工具结果后继续下一轮的 provider。"""
+    name = "mcp-followup-provider"
 
     def __init__(self) -> None:
         """初始化实例状态。"""
         self.calls = 0
 
     async def complete(self, session, tools, prompt=None):
-        """完成当前流程。"""
-        _ = (session, tools, prompt)
+        """第一轮发起 MCP 工具，第二轮读取工具结果后收尾。"""
+        _ = (tools, prompt)
         self.calls += 1
-        if self.calls > 1:
-            raise AssertionError("provider.complete should not be called again after MCP tool result")
+        has_tool_result = any(message.role == "tool" for message in session.messages)
+        if not has_tool_result:
+            return ProviderResponse(
+                display_text="调用 MCP 工具",
+                content_blocks=[
+                    {
+                        "type": "tool_use",
+                        "id": "toolu_mcp_1",
+                        "name": "mcp__xiaohongshu_mcp__check_login_status",
+                        "input": {},
+                    }
+                ],
+                tool_calls=[
+                    ToolCallRequest(
+                        id="toolu_mcp_1",
+                        name="mcp__xiaohongshu_mcp__check_login_status",
+                        input={},
+                    )
+                ],
+            )
         return ProviderResponse(
-            display_text="调用 MCP 工具",
-            content_blocks=[
-                {
-                    "type": "tool_use",
-                    "id": "toolu_mcp_1",
-                    "name": "mcp__xiaohongshu_mcp__check_login_status",
-                    "input": {},
-                }
-            ],
-            tool_calls=[
-                ToolCallRequest(
-                    id="toolu_mcp_1",
-                    name="mcp__xiaohongshu_mcp__check_login_status",
-                    input={},
-                )
-            ],
+            display_text="我已经获取了 MCP 工具结果。",
+            content_blocks=[{"type": "text", "text": "我已经获取了 MCP 工具结果。"}],
         )
 
 
@@ -510,10 +514,10 @@ def test_runtime_plain_text_mcp_tool_name_still_does_not_auto_execute_even_if_pr
     assert not any(message.role == "tool" for message in outcome.session.messages)
 
 
-def test_query_engine_pauses_after_mcp_tool_result_without_second_provider_round(tmp_path):
-    """测试 `query_engine_pauses_after_mcp_tool_result_without_second_provider_round` 场景。"""
+def test_query_engine_continues_after_mcp_tool_result_and_runs_second_provider_round(tmp_path):
+    """测试 `mcp__*` 工具结果写回后，主链会继续自动推进下一轮。"""
     store = SessionStore(root_dir=tmp_path / "sessions")
-    provider = FailIfCalledAgainProvider()
+    provider = McpFollowupProvider()
     session = store.create(cwd=str(tmp_path), model="dummy", provider_name="dummy")
     engine = QueryEngine(
         provider=provider,
@@ -558,14 +562,246 @@ def test_query_engine_pauses_after_mcp_tool_result_without_second_provider_round
     updated = asyncio.run(engine.submit(session, "帮我查看当前小红书的登录状态"))
 
     roles = [message.role for message in updated.messages]
-    assert roles == ["user", "assistant", "tool"]
-    assert provider.calls == 1
+    assert roles == ["user", "assistant", "tool", "assistant"]
+    assert updated.messages[-1].text == "我已经获取了 MCP 工具结果。"
+    assert provider.calls == 2
+
+
+def test_query_engine_non_readonly_mcp_tool_without_permission_rule_executes_directly(tmp_path):
+    """测试非只读 `mcp__*` 工具在无权限规则时也会直接执行。"""
+    store = SessionStore(root_dir=tmp_path / "sessions")
+    provider = McpFollowupProvider()
+    session = store.create(cwd=str(tmp_path), model="dummy", provider_name="dummy")
+    engine = QueryEngine(
+        provider=provider,
+        session_store=store,
+        tool_runtime=ToolRuntime(build_builtin_tools()),
+    )
+    services = engine.tool_runtime.services_for(session)
+
+    class DummyMgr:
+        """表示 `DummyMgr`。"""
+        async def refresh_all(self):
+            """刷新 `all`。"""
+            return []
+
+        def cached_tools(self):
+            """处理 `cached_tools`。"""
+            return {
+                "xiaohongshu-mcp": [
+                    McpToolDefinition(
+                        name="check_login_status",
+                        description="check login",
+                        input_schema={"type": "object", "properties": {}, "required": []},
+                        annotations={"original_name": "check_login_status"},
+                    )
+                ]
+            }
+
+        def cached_prompts(self):
+            """处理 `cached_prompts`。"""
+            return {}
+
+        def cached_resources(self):
+            """处理 `cached_resources`。"""
+            return {}
+
+        async def call_tool(self, server_name, tool_name, arguments=None):
+            """处理 `call_tool`。"""
+            return {"content": "logged-in"}
+
+    services.mcp_manager = DummyMgr()
+
+    updated = asyncio.run(engine.submit(session, "帮我查看当前小红书的登录状态"))
+
+    roles = [message.role for message in updated.messages]
+    assert roles == ["user", "assistant", "tool", "assistant"]
+    assert provider.calls == 2
+
+
+def test_query_engine_non_readonly_mcp_tool_honors_ask_rule(tmp_path):
+    """测试主链模型触发的非只读 `mcp__*` 工具会遵守 ask 规则。"""
+    settings_dir = tmp_path / ".claude-code-thy"
+    settings_dir.mkdir()
+    (settings_dir / "settings.local.json").write_text(
+        json.dumps(
+            {
+                "permissions": [
+                    {
+                        "effect": "ask",
+                        "tool": "mcp__xiaohongshu_mcp__check_login_status",
+                        "target": "command",
+                        "pattern": "mcp__xiaohongshu_mcp__check_login_status",
+                        "description": "mcp tool requires confirmation",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    store = SessionStore(root_dir=tmp_path / "sessions")
+    provider = McpFollowupProvider()
+    session = store.create(cwd=str(tmp_path), model="dummy", provider_name="dummy")
+    engine = QueryEngine(
+        provider=provider,
+        session_store=store,
+        tool_runtime=ToolRuntime(build_builtin_tools()),
+    )
+    services = engine.tool_runtime.services_for(session)
+
+    class DummyMgr:
+        """表示 `DummyMgr`。"""
+        async def refresh_all(self):
+            """刷新 `all`。"""
+            return []
+
+        def cached_tools(self):
+            """处理 `cached_tools`。"""
+            return {
+                "xiaohongshu-mcp": [
+                    McpToolDefinition(
+                        name="check_login_status",
+                        description="check login",
+                        input_schema={"type": "object", "properties": {}, "required": []},
+                        annotations={"original_name": "check_login_status"},
+                    )
+                ]
+            }
+
+        def cached_prompts(self):
+            """处理 `cached_prompts`。"""
+            return {}
+
+        def cached_resources(self):
+            """处理 `cached_resources`。"""
+            return {}
+
+        async def call_tool(self, server_name, tool_name, arguments=None):
+            """处理 `call_tool`。"""
+            return {"content": "logged-in"}
+
+    services.mcp_manager = DummyMgr()
+
+    updated = asyncio.run(engine.submit(session, "帮我查看当前小红书的登录状态"))
+
+    roles = [message.role for message in updated.messages]
+    assert roles == ["user", "assistant", "assistant"]
+    assert updated.messages[-1].metadata["ui_kind"] == "permission_prompt"
+
+
+def test_query_engine_self_mcp_bash_ask_rule_pauses_for_permission(tmp_path):
+    """测试主链模型调用 `mcp__self_mcp__bash` 删除文件时会进入权限确认。"""
+    settings_dir = tmp_path / ".claude-code-thy"
+    settings_dir.mkdir()
+    (settings_dir / "settings.local.json").write_text(
+        json.dumps(
+            {
+                "permissions": [
+                    {
+                        "effect": "ask",
+                        "tool": "mcp__self_mcp__bash",
+                        "target": "command",
+                        "pattern": "rm *",
+                        "description": "删除文件需要确认",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "hello.txt").write_text("delete me\n", encoding="utf-8")
+
+    store = SessionStore(root_dir=tmp_path / "sessions")
+    session = store.create(cwd=str(tmp_path), model="dummy", provider_name="dummy")
+
+    class SelfMcpBashProvider(Provider):
+        """第一轮发起 self_mcp bash 删除命令。"""
+
+        name = "self-mcp-bash-provider"
+
+        async def complete(self, session, tools, prompt=None):
+            _ = (session, tools, prompt)
+            return ProviderResponse(
+                display_text="调用 self_mcp bash",
+                content_blocks=[
+                    {
+                        "type": "tool_use",
+                        "id": "toolu_self_mcp_bash_1",
+                        "name": "mcp__self_mcp__bash",
+                        "input": {
+                            "command": "rm hello.txt",
+                            "description": "删除 hello.txt",
+                        },
+                    }
+                ],
+                tool_calls=[
+                    ToolCallRequest(
+                        id="toolu_self_mcp_bash_1",
+                        name="mcp__self_mcp__bash",
+                        input={
+                            "command": "rm hello.txt",
+                            "description": "删除 hello.txt",
+                        },
+                    )
+                ],
+            )
+
+    engine = QueryEngine(
+        provider=SelfMcpBashProvider(),
+        session_store=store,
+        tool_runtime=ToolRuntime(build_builtin_tools()),
+    )
+    services = engine.tool_runtime.services_for(session)
+
+    class DummyMgr:
+        """表示 `DummyMgr`。"""
+        async def refresh_all(self):
+            return []
+
+        def cached_tools(self):
+            return {
+                "self_mcp": [
+                    McpToolDefinition(
+                        name="bash",
+                        description="bash via self mcp",
+                        input_schema={
+                            "type": "object",
+                            "properties": {
+                                "command": {"type": "string"},
+                                "description": {"type": "string"},
+                            },
+                            "required": ["command"],
+                        },
+                        annotations={"original_name": "bash"},
+                    )
+                ]
+            }
+
+        def cached_prompts(self):
+            return {}
+
+        def cached_resources(self):
+            return {}
+
+    services.mcp_manager = DummyMgr()
+
+    updated = asyncio.run(engine.submit(session, "删除 hello.txt"))
+
+    roles = [message.role for message in updated.messages]
+    assert roles == ["user", "assistant", "assistant"]
+    assert updated.messages[-1].metadata["ui_kind"] == "permission_prompt"
+    pending = updated.runtime_state.get("pending_permission")
+    assert isinstance(pending, dict)
+    assert pending.get("tool_name") == "mcp__self_mcp__bash"
 
 
 def test_resume_pending_mcp_tool_call_pauses_after_tool_result(tmp_path):
-    """测试 `resume_pending_mcp_tool_call_pauses_after_tool_result` 场景。"""
+    """测试恢复 MCP 工具权限后，也会继续自动推进下一轮 provider。"""
     store = SessionStore(root_dir=tmp_path / "sessions")
-    provider = DummyProvider()
+    provider = McpFollowupProvider()
     session = store.create(cwd=str(tmp_path), model="dummy", provider_name="dummy")
     engine = QueryEngine(
         provider=provider,
@@ -637,13 +873,14 @@ def test_resume_pending_mcp_tool_call_pauses_after_tool_result(tmp_path):
     )
 
     roles = [message.role for message in updated.messages]
-    assert roles == ["tool"]
+    assert roles == ["tool", "assistant"]
+    assert updated.messages[-1].text == "我已经获取了 MCP 工具结果。"
 
 
 def test_query_engine_mcp_tool_call_does_not_block_event_loop(tmp_path):
     """测试 `query_engine_mcp_tool_call_does_not_block_event_loop` 场景。"""
     store = SessionStore(root_dir=tmp_path / "sessions")
-    provider = FailIfCalledAgainProvider()
+    provider = McpFollowupProvider()
     session = store.create(cwd=str(tmp_path), model="dummy", provider_name="dummy")
     engine = QueryEngine(
         provider=provider,
@@ -708,14 +945,14 @@ def test_query_engine_mcp_tool_call_does_not_block_event_loop(tmp_path):
 
     updated = asyncio.run(run())
 
-    assert [message.role for message in updated.messages] == ["user", "assistant", "tool"]
+    assert [message.role for message in updated.messages] == ["user", "assistant", "tool", "assistant"]
     assert tick_count >= 3
 
 
 def test_resume_pending_mcp_tool_call_does_not_block_event_loop(tmp_path):
     """测试 `resume_pending_mcp_tool_call_does_not_block_event_loop` 场景。"""
     store = SessionStore(root_dir=tmp_path / "sessions")
-    provider = DummyProvider()
+    provider = McpFollowupProvider()
     session = store.create(cwd=str(tmp_path), model="dummy", provider_name="dummy")
     engine = QueryEngine(
         provider=provider,
@@ -804,5 +1041,5 @@ def test_resume_pending_mcp_tool_call_does_not_block_event_loop(tmp_path):
 
     updated = asyncio.run(run())
 
-    assert [message.role for message in updated.messages] == ["tool"]
+    assert [message.role for message in updated.messages] == ["tool", "assistant"]
     assert tick_count >= 3

@@ -44,6 +44,7 @@ class QueryEngine:
         tool_event_handler: ToolEventHandler | None = None,
     ) -> SessionTranscript:
         """把用户输入写入会话后，持续推进直到模型停下或等待权限。"""
+        self._ensure_session_log_hook(session)
         session.add_message(
             "user",
             prompt,
@@ -65,6 +66,7 @@ class QueryEngine:
         message_added_handler: MessageAddedHandler | None = None,
     ) -> SessionTranscript:
         """把用户输入写入会话后，以流式方式推进整轮“模型 -> 工具 -> 模型”。"""
+        self._ensure_session_log_hook(session)
         session.add_message(
             "user",
             prompt,
@@ -102,6 +104,12 @@ class QueryEngine:
         clear_pending_permission(session)
 
         if approved:
+            log_context = self._take_pending_log_context(
+                session,
+                tool_name=tool_name,
+                tool_use_id=tool_use_id,
+                input_data=input_data,
+            )
             try:
                 result = await self._execute_tool_input(
                     tool_name,
@@ -110,6 +118,7 @@ class QueryEngine:
                     tool_use_id=tool_use_id,
                     original_input=original_input if isinstance(original_input, dict) else None,
                     event_handler=tool_event_handler,
+                    log_context=log_context,
                 )
             except PermissionRequiredError as error:
                 return self._pause_for_permission(
@@ -145,6 +154,12 @@ class QueryEngine:
         denied_reason = ""
         if isinstance(request, dict):
             denied_reason = str(request.get("reason", "")).strip()
+        log_context = self._take_pending_log_context(
+            session,
+            tool_name=tool_name,
+            tool_use_id=tool_use_id,
+            input_data=input_data if isinstance(input_data, dict) else {},
+        )
         rejected = self.tool_runtime.render_rejected(
             tool_name,
             input_data if isinstance(input_data, dict) else {},
@@ -154,6 +169,9 @@ class QueryEngine:
             tool_use_id=tool_use_id,
             original_input=original_input if isinstance(original_input, dict) else None,
         )
+        log_manager = self._session_log_manager(session)
+        if log_manager is not None and log_context is not None:
+            log_manager.finish_tool_call(session, log_context, rejected)
         self._append_tool_result(session, rejected, tool_use_id=tool_use_id)
         self.session_store.save(session)
         return await self._complete_until_pause(
@@ -169,21 +187,47 @@ class QueryEngine:
     ) -> SessionTranscript:
         """循环执行“模型回复 -> 工具调用”，直到拿到最终文本或需要暂停。"""
         for _ in range(self.max_iterations):
+            request_preview: dict[str, object] | None = None
+            rendered_prompt: RenderedPrompt | None = None
+            tools = []
             try:
                 await self.tool_runtime.warm_tool_specs_for_session(session)
                 rendered_prompt = self._build_rendered_prompt(session)
+                tools = self.tool_runtime.list_tool_specs_for_session(
+                    session,
+                    allow_sync_refresh=False,
+                )
+                request_preview = self._build_request_preview_safe(session, tools, rendered_prompt)
+                log_manager = self._session_log_manager(session)
+                if log_manager is not None and rendered_prompt is not None and request_preview is not None:
+                    log_manager.record_provider_request(
+                        session,
+                        provider_name=self.provider.name,
+                        request_preview=request_preview,
+                        rendered_prompt=rendered_prompt,
+                    )
                 response = await self.provider.complete(
                     session,
-                    self.tool_runtime.list_tool_specs_for_session(
-                        session,
-                        allow_sync_refresh=False,
-                    ),
+                    tools,
                     prompt=rendered_prompt,
                 )
             except ProviderError as error:
+                log_manager = self._session_log_manager(session)
+                if log_manager is not None:
+                    log_manager.record_provider_error(
+                        session,
+                        stage="provider.complete",
+                        error=error,
+                        provider_name=self.provider.name,
+                        request_preview=request_preview,
+                    )
                 session.add_message("assistant", f"API 调用失败：{error}")
                 self.session_store.save(session)
                 return session
+
+            log_manager = self._session_log_manager(session)
+            if log_manager is not None:
+                log_manager.record_provider_response(session, response)
 
             session.add_message(
                 "assistant",
@@ -288,10 +332,22 @@ class QueryEngine:
                     text_delta_handler=text_delta_handler,
                 )
             except ProviderError as error:
+                log_manager = self._session_log_manager(session)
+                if log_manager is not None:
+                    log_manager.record_provider_error(
+                        session,
+                        stage="provider.stream_complete",
+                        error=error,
+                        provider_name=self.provider.name,
+                    )
                 session.add_message("assistant", f"API 调用失败：{error}")
                 self.session_store.save(session)
                 self._emit_message_added(session, message_added_handler)
                 return session
+
+            log_manager = self._session_log_manager(session)
+            if log_manager is not None:
+                log_manager.record_provider_response(session, response)
 
             session.add_message(
                 "assistant",
@@ -430,7 +486,8 @@ class QueryEngine:
 
     def _should_pause_after_tool_result(self, tool_name: str) -> bool:
         """决定某类工具执行完后是否立刻把控制权交还给前端。"""
-        return tool_name.startswith("mcp__")
+        _ = tool_name
+        return False
 
     async def _execute_tool_input(
         self,
@@ -441,6 +498,7 @@ class QueryEngine:
         tool_use_id: str | None = None,
         original_input: dict[str, object] | None = None,
         event_handler: ToolEventHandler | None = None,
+        log_context=None,
     ):
         """执行工具输入，并对 MCP 工具额外施加 UI 等待超时保护。"""
         if not tool_name.startswith("mcp__"):
@@ -452,6 +510,7 @@ class QueryEngine:
                 tool_use_id=tool_use_id,
                 original_input=original_input,
                 event_handler=event_handler,
+                log_context=log_context,
             )
 
         timeout_s = self._mcp_ui_wait_timeout_seconds(session)
@@ -466,6 +525,7 @@ class QueryEngine:
                         tool_use_id=tool_use_id,
                         original_input=original_input,
                         event_handler=None,
+                        log_context=log_context,
                     )
                 ),
                 timeout=timeout_s,
@@ -548,17 +608,29 @@ class QueryEngine:
         """消费 provider 的流式事件，并在结束后还原出完整 ProviderResponse。"""
         final_response: ProviderResponse | None = None
         rendered_prompt = self._build_rendered_prompt(session)
+        tools = self.tool_runtime.list_tool_specs_for_session(
+            session,
+            allow_sync_refresh=False,
+        )
+        request_preview = self._build_request_preview_safe(session, tools, rendered_prompt)
+        log_manager = self._session_log_manager(session)
+        if log_manager is not None and request_preview is not None:
+            log_manager.record_provider_request(
+                session,
+                provider_name=self.provider.name,
+                request_preview=request_preview,
+                rendered_prompt=rendered_prompt,
+            )
         async for event in self.provider.stream_complete(
             session,
-            self.tool_runtime.list_tool_specs_for_session(
-                session,
-                allow_sync_refresh=False,
-            ),
+            tools,
             prompt=rendered_prompt,
         ):
             if event.type == "text_delta":
                 if text_delta_handler is not None and event.text:
                     text_delta_handler(event.text)
+                if log_manager is not None and event.text:
+                    log_manager.record_text_delta(session, event.text)
                 continue
             if event.type == "response":
                 final_response = event.response
@@ -587,4 +659,48 @@ class QueryEngine:
             services,
             provider_name=self.provider.name,
             model=resolved_model,
+        )
+
+    def _ensure_session_log_hook(self, session: SessionTranscript) -> None:
+        """确保当前 session 已挂上消息日志回调。"""
+        log_manager = self._session_log_manager(session)
+        if log_manager is not None:
+            log_manager.attach_message_hook(session)
+
+    def _session_log_manager(self, session: SessionTranscript):
+        """返回当前 session 的日志管理器。"""
+        try:
+            return self.tool_runtime.services_for(session).session_log_manager
+        except ToolError:
+            return None
+
+    def _build_request_preview_safe(
+        self,
+        session: SessionTranscript,
+        tools,
+        rendered_prompt: RenderedPrompt,
+    ) -> dict[str, object] | None:
+        """以 best-effort 方式构造 provider 请求预览。"""
+        try:
+            return self.provider.build_request_preview(session, tools, prompt=rendered_prompt)
+        except Exception:
+            return None
+
+    def _take_pending_log_context(
+        self,
+        session: SessionTranscript,
+        *,
+        tool_name: str,
+        tool_use_id: str | None,
+        input_data: dict[str, object],
+    ):
+        """恢复一次待确认工具调用的日志上下文，避免 resume 时重复记 start。"""
+        log_manager = self._session_log_manager(session)
+        if log_manager is None:
+            return None
+        return log_manager.take_pending_tool_call(
+            session,
+            tool_name=tool_name,
+            tool_use_id=tool_use_id,
+            input_data=input_data,
         )

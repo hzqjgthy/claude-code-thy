@@ -9,6 +9,7 @@ from claude_code_thy.lsp import LspManager
 from claude_code_thy.mcp import McpRuntimeManager
 from claude_code_thy.permissions import PermissionEngine
 from claude_code_thy.prompts import PromptRuntime
+from claude_code_thy.session_logs.manager import SessionLogManager
 from claude_code_thy.sandbox import SandboxManager, SandboxPolicy
 from claude_code_thy.settings import AppSettings
 from claude_code_thy.skills import PromptCommandRegistry
@@ -32,6 +33,7 @@ class ToolServices:
     browser_manager: BrowserManager
     lsp_manager: LspManager
     mcp_manager: McpRuntimeManager
+    session_log_manager: SessionLogManager
     _sessions: dict[str, "SessionTranscript"] = field(default_factory=dict, repr=False)
 
     def register_session(self, session: "SessionTranscript") -> None:
@@ -59,4 +61,5 @@ def build_tool_services(workspace_root: Path) -> ToolServices:
         browser_manager=BrowserManager(resolved_root, settings.browser),
         lsp_manager=LspManager(resolved_root, settings.lsp),
         mcp_manager=McpRuntimeManager(resolved_root, settings),
+        session_log_manager=SessionLogManager(resolved_root, settings.session_logs),
     )

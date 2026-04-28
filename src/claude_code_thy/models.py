@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
+from typing import Callable
 
 
 def utc_now() -> str:
@@ -46,6 +47,9 @@ class ChatMessage:
         )
 
 
+MessageAddedHook = Callable[["SessionTranscript", int, ChatMessage], None]
+
+
 @dataclass(slots=True)
 class SessionTranscript:
     """保存一个会话的完整上下文、消息历史和运行时状态。"""
@@ -58,6 +62,7 @@ class SessionTranscript:
     updated_at: str = field(default_factory=utc_now)
     runtime_state: dict[str, object] = field(default_factory=dict)
     messages: list[ChatMessage] = field(default_factory=list)
+    message_added_hook: MessageAddedHook | None = field(default=None, repr=False, compare=False)
 
     def add_message(
         self,
@@ -79,6 +84,8 @@ class SessionTranscript:
         if role == "user" and not self.title and text.strip():
             self.title = build_session_title(text)
         self.updated_at = utc_now()
+        if self.message_added_hook is not None:
+            self.message_added_hook(self, len(self.messages) - 1, self.messages[-1])
 
     def clear_messages(self) -> None:
         """清空消息历史，但保留会话本身的标识与配置。"""

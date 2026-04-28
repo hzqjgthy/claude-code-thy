@@ -101,6 +101,23 @@ class McpSettings:
 
 
 @dataclass(slots=True)
+class SessionLogSettings:
+    """保存 session 双轨日志的输出位置与裁剪策略。"""
+    enabled: bool = True
+    output_dir: str = ".claude-code-thy/session-logs"
+    write_human_log: bool = True
+    write_jsonl_log: bool = True
+    tool_output_inline_max_chars: int = 4_000
+    tool_output_head_chars: int = 1_500
+    tool_output_tail_chars: int = 1_500
+    include_request_preview: bool = True
+    include_prompt_bundle_summary: bool = True
+    include_provider_response_blocks: bool = True
+    include_text_deltas: bool = False
+    include_traceback: bool = False
+
+
+@dataclass(slots=True)
 class AppSettings:
     """汇总项目级设置文件里所有可配置子模块的配置。"""
     permission_rules: tuple[ToolPermissionRule, ...] = ()
@@ -121,6 +138,7 @@ class AppSettings:
     browser_search: BrowserSearchSettings = field(default_factory=BrowserSearchSettings)
     lsp: LspSettings = field(default_factory=LspSettings)
     mcp: McpSettings = field(default_factory=McpSettings)
+    session_logs: SessionLogSettings = field(default_factory=SessionLogSettings)
 
     @classmethod
     def load_for_workspace(cls, cwd: Path) -> "AppSettings":
@@ -143,6 +161,7 @@ class AppSettings:
             browser_search=_load_browser_search_settings(raw.get("browser_search")),
             lsp=_load_lsp_settings(raw.get("lsp")),
             mcp=_load_mcp_settings(raw.get("mcp")),
+            session_logs=_load_session_log_settings(raw.get("session_logs")),
         )
 
 
@@ -222,6 +241,13 @@ def validate_settings_document(data: object) -> list[str]:
                 errors.append("mcp.connect_timeout_ms 必须是整数。")
             if "tool_call_timeout_ms" in mcp and not isinstance(mcp["tool_call_timeout_ms"], int):
                 errors.append("mcp.tool_call_timeout_ms 必须是整数。")
+
+    session_logs = data.get("session_logs")
+    if session_logs is not None:
+        if not isinstance(session_logs, dict):
+            errors.append("session_logs 必须是 object。")
+        else:
+            errors.extend(_validate_session_log_document(session_logs))
 
     return errors
 
@@ -470,6 +496,26 @@ def _load_mcp_settings(value: object) -> McpSettings:
     )
 
 
+def _load_session_log_settings(value: object) -> SessionLogSettings:
+    """从原始 JSON 片段构造 session 日志配置。"""
+    if not isinstance(value, dict):
+        return SessionLogSettings()
+    return SessionLogSettings(
+        enabled=bool(value.get("enabled", True)),
+        output_dir=str(value.get("output_dir", ".claude-code-thy/session-logs") or ".claude-code-thy/session-logs"),
+        write_human_log=bool(value.get("write_human_log", True)),
+        write_jsonl_log=bool(value.get("write_jsonl_log", True)),
+        tool_output_inline_max_chars=int(value.get("tool_output_inline_max_chars", 4_000) or 4_000),
+        tool_output_head_chars=int(value.get("tool_output_head_chars", 1_500) or 1_500),
+        tool_output_tail_chars=int(value.get("tool_output_tail_chars", 1_500) or 1_500),
+        include_request_preview=bool(value.get("include_request_preview", True)),
+        include_prompt_bundle_summary=bool(value.get("include_prompt_bundle_summary", True)),
+        include_provider_response_blocks=bool(value.get("include_provider_response_blocks", True)),
+        include_text_deltas=bool(value.get("include_text_deltas", False)),
+        include_traceback=bool(value.get("include_traceback", False)),
+    )
+
+
 def _validate_browser_document(data: dict[str, object]) -> list[str]:
     """校验 browser 段落里的字段类型。"""
     errors: list[str] = []
@@ -509,4 +555,34 @@ def _validate_browser_search_document(data: dict[str, object]) -> list[str]:
         errors.append("browser_search.max_same_domain 必须是整数。")
     if "dedupe_domains" in data and not isinstance(data["dedupe_domains"], bool):
         errors.append("browser_search.dedupe_domains 必须是布尔值。")
+    return errors
+
+
+def _validate_session_log_document(data: dict[str, object]) -> list[str]:
+    """校验 session_logs 段落里的字段类型。"""
+    errors: list[str] = []
+    if "enabled" in data and not isinstance(data["enabled"], bool):
+        errors.append("session_logs.enabled 必须是布尔值。")
+    if "output_dir" in data and not isinstance(data["output_dir"], str):
+        errors.append("session_logs.output_dir 必须是字符串。")
+    if "write_human_log" in data and not isinstance(data["write_human_log"], bool):
+        errors.append("session_logs.write_human_log 必须是布尔值。")
+    if "write_jsonl_log" in data and not isinstance(data["write_jsonl_log"], bool):
+        errors.append("session_logs.write_jsonl_log 必须是布尔值。")
+    if "tool_output_inline_max_chars" in data and not isinstance(data["tool_output_inline_max_chars"], int):
+        errors.append("session_logs.tool_output_inline_max_chars 必须是整数。")
+    if "tool_output_head_chars" in data and not isinstance(data["tool_output_head_chars"], int):
+        errors.append("session_logs.tool_output_head_chars 必须是整数。")
+    if "tool_output_tail_chars" in data and not isinstance(data["tool_output_tail_chars"], int):
+        errors.append("session_logs.tool_output_tail_chars 必须是整数。")
+    if "include_request_preview" in data and not isinstance(data["include_request_preview"], bool):
+        errors.append("session_logs.include_request_preview 必须是布尔值。")
+    if "include_prompt_bundle_summary" in data and not isinstance(data["include_prompt_bundle_summary"], bool):
+        errors.append("session_logs.include_prompt_bundle_summary 必须是布尔值。")
+    if "include_provider_response_blocks" in data and not isinstance(data["include_provider_response_blocks"], bool):
+        errors.append("session_logs.include_provider_response_blocks 必须是布尔值。")
+    if "include_text_deltas" in data and not isinstance(data["include_text_deltas"], bool):
+        errors.append("session_logs.include_text_deltas 必须是布尔值。")
+    if "include_traceback" in data and not isinstance(data["include_traceback"], bool):
+        errors.append("session_logs.include_traceback 必须是布尔值。")
     return errors

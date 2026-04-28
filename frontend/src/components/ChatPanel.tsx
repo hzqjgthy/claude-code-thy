@@ -1,5 +1,7 @@
 import { Composer } from "./Composer";
 import { MessageCard } from "./MessageCard";
+import { ToolInteractionCard } from "./ToolInteractionCard";
+import { buildChatRenderItems } from "../lib/chatItems";
 import { useAppState } from "../lib/store";
 
 export function ChatPanel() {
@@ -10,6 +12,7 @@ export function ChatPanel() {
     isStreaming,
     liveToolEvents,
   } = useAppState();
+  const renderItems = buildChatRenderItems(messages);
 
   return (
     <section className="chat-panel">
@@ -26,8 +29,12 @@ export function ChatPanel() {
       </header>
 
       <div className="chat-scroll">
-        {messages.map((message) => (
-          <MessageCard key={message.message_id} message={message} />
+        {renderItems.map((item) => (
+          item.type === "tool_interaction" ? (
+            <ToolInteractionCard key={item.key} item={item} />
+          ) : (
+            <MessageCard key={item.key} message={item.message} />
+          )
         ))}
 
         {liveAssistantText ? (

@@ -170,3 +170,38 @@ def test_load_for_workspace_supports_browser_settings(tmp_path):
     assert settings.browser_search.search_engines["searxng"]["parser"] == "generic_links"
     assert settings.browser_search.max_same_domain == 2
     assert settings.browser_search.dedupe_domains is False
+
+
+def test_load_for_workspace_supports_session_log_settings(tmp_path):
+    """测试 session 双轨日志配置会被正确加载。"""
+    settings_dir = tmp_path / ".claude-code-thy"
+    settings_dir.mkdir()
+    (settings_dir / "settings.json").write_text(
+        json.dumps(
+            {
+                "session_logs": {
+                    "enabled": True,
+                    "output_dir": ".claude-code-thy/custom-session-logs",
+                    "write_human_log": True,
+                    "write_jsonl_log": False,
+                    "tool_output_inline_max_chars": 222,
+                    "tool_output_head_chars": 33,
+                    "tool_output_tail_chars": 44,
+                    "include_text_deltas": True,
+                }
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    settings = AppSettings.load_for_workspace(tmp_path)
+
+    assert settings.session_logs.enabled is True
+    assert settings.session_logs.output_dir == ".claude-code-thy/custom-session-logs"
+    assert settings.session_logs.write_human_log is True
+    assert settings.session_logs.write_jsonl_log is False
+    assert settings.session_logs.tool_output_inline_max_chars == 222
+    assert settings.session_logs.tool_output_head_chars == 33
+    assert settings.session_logs.tool_output_tail_chars == 44
+    assert settings.session_logs.include_text_deltas is True

@@ -8,10 +8,12 @@ from claude_code_thy.mcp.names import (
     build_mcp_tool_name,
     is_normalized_mcp_name_match,
     matching_server_names,
+    normalize_name_for_mcp,
     parse_dynamic_mcp_name,
 )
 from claude_code_thy.mcp.utils import run_async_sync
 from claude_code_thy.models import SessionTranscript
+from claude_code_thy.session_logs.records import ToolCallLogContext
 from claude_code_thy.services import ToolServices, build_tool_services
 from claude_code_thy.tools.MCPTool import MCPTool
 from claude_code_thy.tools.McpAuthTool import McpAuthTool
@@ -31,6 +33,110 @@ from claude_code_thy.tools.base import (
     ToolResult,
     ToolSpec,
 )
+
+
+class SelfMcpProxyTool(Tool):
+    """把 `mcp__self_mcp__*` 动态工具代理成本地真实工具执行。"""
+
+    def __init__(self, server_name: str, dynamic_name: str, delegate: Tool) -> None:
+        """保存动态名、server 名和底层本地工具。"""
+        self.server_name = server_name
+        self.delegate = delegate
+        self.name = dynamic_name
+        self.description = delegate.description
+        self.usage = delegate.usage
+        self.input_schema = delegate.input_schema
+
+    def is_read_only(self) -> bool:
+        """沿用底层工具的只读属性。"""
+        return self.delegate.is_read_only()
+
+    def is_concurrency_safe(self) -> bool:
+        """沿用底层工具的并发安全属性。"""
+        return self.delegate.is_concurrency_safe()
+
+    def search_behavior(self) -> dict[str, bool]:
+        """沿用底层工具的搜索行为定义。"""
+        return self.delegate.search_behavior()
+
+    def parse_raw_input(self, raw_args: str, context: ToolContext) -> dict[str, object]:
+        """沿用底层工具的字符串参数解析。"""
+        return self.delegate.parse_raw_input(raw_args, context)
+
+    def validate_input_data(self, input_data: dict[str, object], context: ToolContext) -> dict[str, object]:
+        """沿用底层工具的 schema 校验。"""
+        return self.delegate.validate_input_data(input_data, context)
+
+    def validate_input(self, input_data: dict[str, object], context: ToolContext):
+        """沿用底层工具的业务校验。"""
+        return self.delegate.validate_input(input_data, context)
+
+    def check_permissions(self, input_data: dict[str, object], context: ToolContext):
+        """沿用底层工具的权限逻辑。"""
+        return self.delegate.check_permissions(input_data, context)
+
+    def prepare_permission_matcher(self, input_data: dict[str, object], context: ToolContext):
+        """沿用底层工具的权限匹配器。"""
+        return self.delegate.prepare_permission_matcher(input_data, context)
+
+    def inputs_equivalent(
+        self,
+        original_input: dict[str, object],
+        updated_input: dict[str, object],
+    ) -> bool:
+        """沿用底层工具的输入等价性判断。"""
+        return self.delegate.inputs_equivalent(original_input, updated_input)
+
+    def render_tool_use_rejected_message(
+        self,
+        input_data: dict[str, object],
+        context: ToolContext,
+        *,
+        reason: str,
+        original_input: dict[str, object] | None = None,
+        user_modified: bool = False,
+    ) -> ToolResult:
+        """先让底层工具生成拒绝结果，再补充动态 MCP 元数据。"""
+        result = self.delegate.render_tool_use_rejected_message(
+            input_data,
+            context,
+            reason=reason,
+            original_input=original_input,
+            user_modified=user_modified,
+        )
+        return self._adapt_result(result)
+
+    def execute(self, raw_args: str, context: ToolContext) -> ToolResult:
+        """沿用底层工具执行字符串参数。"""
+        return self._adapt_result(self.delegate.execute(raw_args, context))
+
+    def execute_input(self, input_data: dict[str, object], context: ToolContext) -> ToolResult:
+        """沿用底层工具执行结构化输入。"""
+        return self._adapt_result(self.delegate.execute_input(input_data, context))
+
+    def map_tool_result_to_model_content(
+        self,
+        result: ToolResult,
+        *,
+        tool_use_id: str | None = None,
+    ) -> object:
+        """沿用底层工具的模型回传内容格式。"""
+        return self.delegate.map_tool_result_to_model_content(result, tool_use_id=tool_use_id)
+
+    def extract_search_text(self, result: ToolResult) -> str:
+        """沿用底层工具的搜索文本提取。"""
+        return self.delegate.extract_search_text(result)
+
+    def _adapt_result(self, result: ToolResult) -> ToolResult:
+        """把底层工具结果补充成动态 MCP 工具结果。"""
+        result.metadata.setdefault("server_name", self.server_name)
+        result.metadata.setdefault("is_mcp", True)
+        result.metadata.setdefault("proxied_tool_name", self.delegate.name)
+        if isinstance(result.structured_data, dict):
+            result.structured_data.setdefault("server_name", self.server_name)
+            result.structured_data.setdefault("is_mcp", True)
+            result.structured_data.setdefault("proxied_tool_name", self.delegate.name)
+        return result
 
 class ToolRuntime:
     """负责为每个会话解析、执行并动态扩展可用工具。"""
@@ -167,6 +273,7 @@ class ToolRuntime:
             tool,
             input_data=input_data,
             session=session,
+            surface=surface,
             tool_use_id=tool_use_id,
             event_handler=event_handler,
             original_input=input_data,
@@ -182,6 +289,7 @@ class ToolRuntime:
         tool_use_id: str | None = None,
         original_input: dict[str, object] | None = None,
         event_handler: ToolEventHandler | None = None,
+        log_context: ToolCallLogContext | None = None,
     ) -> ToolResult:
         """直接执行结构化工具输入。"""
         tool = self._resolve_tool(session, tool_name)
@@ -193,9 +301,11 @@ class ToolRuntime:
             tool,
             input_data=input_data,
             session=session,
+            surface=surface,
             tool_use_id=tool_use_id,
             event_handler=event_handler,
             original_input=original_input,
+            log_context=log_context,
         )
 
     def render_rejected(
@@ -240,70 +350,109 @@ class ToolRuntime:
         *,
         input_data: dict[str, object],
         session: SessionTranscript,
+        surface: str,
         tool_use_id: str | None,
         event_handler: ToolEventHandler | None,
         original_input: dict[str, object] | None = None,
+        log_context: ToolCallLogContext | None = None,
     ) -> ToolResult:
         """串起输入校验、权限判断、真正执行和结果收尾的完整流程。"""
+        log_manager = self._session_log_manager(session)
+        active_log_context = log_context
+        if log_manager is not None and active_log_context is None:
+            active_log_context = log_manager.begin_tool_call(
+                session,
+                tool_name=tool.name,
+                tool_use_id=tool_use_id,
+                surface=surface,
+                input_data=copy.deepcopy(input_data),
+            )
+
         base_context = self._build_context(session, event_handler, tool_use_id=tool_use_id)
         original = copy.deepcopy(original_input or input_data)
-        candidate = tool.validate_input_data(copy.deepcopy(input_data), base_context)
-        validation = tool.validate_input(copy.deepcopy(candidate), base_context)
-        if not validation.ok:
-            raise ToolError(validation.message or f"工具 `{tool.name}` 输入校验失败")
-        if validation.updated_input is not None:
-            candidate = copy.deepcopy(validation.updated_input)
+        try:
+            candidate = tool.validate_input_data(copy.deepcopy(input_data), base_context)
+            validation = tool.validate_input(copy.deepcopy(candidate), base_context)
+            if not validation.ok:
+                raise ToolError(validation.message or f"工具 `{tool.name}` 输入校验失败")
+            if validation.updated_input is not None:
+                candidate = copy.deepcopy(validation.updated_input)
 
-        permission_matcher = tool.prepare_permission_matcher(copy.deepcopy(candidate), base_context)
-        permission_result = tool.check_permissions(copy.deepcopy(candidate), base_context)
-        if permission_result.updated_input is not None:
-            candidate = copy.deepcopy(permission_result.updated_input)
+            permission_matcher = tool.prepare_permission_matcher(copy.deepcopy(candidate), base_context)
+            permission_result = tool.check_permissions(copy.deepcopy(candidate), base_context)
+            if permission_result.updated_input is not None:
+                candidate = copy.deepcopy(permission_result.updated_input)
 
-        user_modified = not tool.inputs_equivalent(original, candidate)
-        context = self._build_context(
-            session,
-            event_handler,
-            tool_use_id=tool_use_id,
-            invocation_input=copy.deepcopy(candidate),
-            original_input=original,
-            user_modified=user_modified,
-        )
-        if permission_matcher is not None:
-            context.emit(
-                tool.name,
-                "permission_matcher",
-                "权限匹配器已准备",
-                metadata={"tool_use_id": tool_use_id or "", "has_matcher": True},
-            )
-
-        if permission_result.behavior == "ask":
-            request = permission_result.request
-            if request is None:
-                raise ToolError(f"工具 `{tool.name}` 返回了无效的权限确认结果")
-            raise PermissionRequiredError(
-                request,
-                input_data=copy.deepcopy(candidate),
+            user_modified = not tool.inputs_equivalent(original, candidate)
+            context = self._build_context(
+                session,
+                event_handler,
+                tool_use_id=tool_use_id,
+                invocation_input=copy.deepcopy(candidate),
                 original_input=original,
                 user_modified=user_modified,
             )
+            if permission_matcher is not None:
+                context.emit(
+                    tool.name,
+                    "permission_matcher",
+                    "权限匹配器已准备",
+                    metadata={"tool_use_id": tool_use_id or "", "has_matcher": True},
+                )
 
-        if permission_result.behavior == "deny":
-            result = tool.render_tool_use_rejected_message(
-                copy.deepcopy(candidate),
-                context,
-                reason=permission_result.reason,
-                original_input=original,
-                user_modified=user_modified,
-            )
+            if permission_result.behavior == "ask":
+                request = permission_result.request
+                if request is None:
+                    raise ToolError(f"工具 `{tool.name}` 返回了无效的权限确认结果")
+                if log_manager is not None and active_log_context is not None:
+                    log_manager.record_permission_requested(
+                        session,
+                        active_log_context,
+                        reason=request.reason or f"{tool.name} 需要权限确认",
+                        input_data=copy.deepcopy(candidate),
+                        original_input=original,
+                        user_modified=user_modified,
+                        request_data=request.to_dict(),
+                    )
+                raise PermissionRequiredError(
+                    request,
+                    input_data=copy.deepcopy(candidate),
+                    original_input=original,
+                    user_modified=user_modified,
+                )
+
+            if permission_result.behavior == "deny":
+                result = tool.render_tool_use_rejected_message(
+                    copy.deepcopy(candidate),
+                    context,
+                    reason=permission_result.reason,
+                    original_input=original,
+                    user_modified=user_modified,
+                )
+                self._finalize_result(tool, result, tool_use_id=tool_use_id)
+                if log_manager is not None and active_log_context is not None:
+                    log_manager.finish_tool_call(session, active_log_context, result)
+                return result
+
+            result = tool.execute_input(copy.deepcopy(candidate), context)
+            if isinstance(result.structured_data, dict):
+                result.structured_data.setdefault("user_modified", user_modified)
+            result.metadata.setdefault("user_modified", user_modified)
             self._finalize_result(tool, result, tool_use_id=tool_use_id)
+            if log_manager is not None and active_log_context is not None:
+                log_manager.finish_tool_call(session, active_log_context, result)
             return result
-
-        result = tool.execute_input(copy.deepcopy(candidate), context)
-        if isinstance(result.structured_data, dict):
-            result.structured_data.setdefault("user_modified", user_modified)
-        result.metadata.setdefault("user_modified", user_modified)
-        self._finalize_result(tool, result, tool_use_id=tool_use_id)
-        return result
+        except PermissionRequiredError:
+            raise
+        except ToolError as error:
+            if log_manager is not None and active_log_context is not None:
+                log_manager.finish_tool_error(
+                    session,
+                    active_log_context,
+                    error=error,
+                    output=f"工具 `{tool.name}` 执行失败：{error}",
+                )
+            raise
 
     def _finalize_result(
         self,
@@ -362,6 +511,13 @@ class ToolRuntime:
             original_input=original_input or {},
             user_modified=user_modified,
         )
+
+    def _session_log_manager(self, session: SessionTranscript):
+        """返回当前 session 绑定的日志管理器；不可用时返回 `None`。"""
+        try:
+            return self.services_for(session).session_log_manager
+        except ToolError:
+            return None
 
     def _resolve_tool(self, session: SessionTranscript, tool_name: str) -> Tool | None:
         """先查静态工具，再按需解析动态 MCP 工具。"""
@@ -462,6 +618,14 @@ class ToolRuntime:
         """把 MCP 返回的工具定义包装成本地 Tool 实例。"""
         if isinstance(getattr(definition, "annotations", None), dict) and definition.annotations.get("authTool"):
             return McpAuthTool(server_name)
+        if normalize_name_for_mcp(server_name) == "self_mcp":
+            local_tool = self._tools.get(str(getattr(definition, "name", "")).strip())
+            if local_tool is not None:
+                return SelfMcpProxyTool(
+                    server_name,
+                    build_mcp_tool_name(server_name, definition.name),
+                    local_tool,
+                )
         wrapped = MCPTool(server_name, definition)
         wrapped.name = build_mcp_tool_name(server_name, definition.name)
         return wrapped

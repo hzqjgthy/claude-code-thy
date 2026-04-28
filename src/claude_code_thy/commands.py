@@ -168,6 +168,13 @@ class CommandProcessor:
 
         if not approved:
             reason = request.reason if request is not None else ""
+            log_manager = self.tool_runtime.services_for(session).session_log_manager
+            log_context = log_manager.take_pending_tool_call(
+                session,
+                tool_name=tool_name,
+                tool_use_id=None,
+                input_data=input_data if isinstance(input_data, dict) else {},
+            )
             rejected = self.tool_runtime.render_rejected(
                 tool_name,
                 input_data if isinstance(input_data, dict) else {},
@@ -175,6 +182,8 @@ class CommandProcessor:
                 reason=reason or "权限请求已拒绝。",
                 original_input=original_input if isinstance(original_input, dict) else None,
             )
+            if log_context is not None:
+                log_manager.finish_tool_call(session, log_context, rejected)
             session.add_message(
                 "tool",
                 rejected.render(),
@@ -184,6 +193,13 @@ class CommandProcessor:
             return CommandOutcome(session=session, message_added=True)
 
         try:
+            log_manager = self.tool_runtime.services_for(session).session_log_manager
+            log_context = log_manager.take_pending_tool_call(
+                session,
+                tool_name=tool_name,
+                tool_use_id=None,
+                input_data=input_data if isinstance(input_data, dict) else {},
+            )
             has_structured_input = "input_data" in pending and isinstance(input_data, dict)
             if has_structured_input:
                 result = self.tool_runtime.execute_input(
@@ -192,6 +208,7 @@ class CommandProcessor:
                     session,
                     original_input=original_input if isinstance(original_input, dict) else None,
                     event_handler=event_handler,
+                    log_context=log_context,
                 )
             else:
                 result = self.tool_runtime.execute(

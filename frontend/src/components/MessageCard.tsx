@@ -13,22 +13,6 @@ function formatTime(value: string): string {
   });
 }
 
-function renderToolCalls(message: MessageDTO) {
-  if (!message.tool_calls.length) {
-    return null;
-  }
-  return (
-    <div className="tool-call-list">
-      {message.tool_calls.map((call) => (
-        <div key={call.call_id} className="tool-chip">
-          <div className="tool-chip-title">{call.name}</div>
-          <pre>{JSON.stringify(call.input, null, 2)}</pre>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function renderToolResult(message: MessageDTO) {
   if (!message.tool_result) {
     return null;
@@ -66,7 +50,6 @@ export function MessageCard({ message }: { message: MessageDTO }) {
     <div className="message-row">
       <div className={`message-bubble message-bubble-${message.kind}`}>
         {showMessageText && message.text ? <div className="message-text">{message.text}</div> : null}
-        {renderToolCalls(message)}
         {renderToolResult(message)}
         <div className="message-time">{formatTime(message.created_at)}</div>
       </div>
