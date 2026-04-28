@@ -4,7 +4,6 @@ import fnmatch
 from dataclasses import dataclass
 from pathlib import Path
 
-from claude_code_thy.mcp.names import build_mcp_tool_name, parse_dynamic_mcp_name
 from claude_code_thy.settings import AppSettings, ToolPermissionRule
 
 
@@ -57,11 +56,10 @@ class PermissionEngine:
 
     def _match_rule(self, tool_name: str, value: str, *, target: str) -> ToolPermissionRule | None:
         """匹配 `rule`。"""
-        candidate_tools = _equivalent_tool_names(tool_name)
         for rule in self.settings.permission_rules:
             if rule.target not in {target, "*"}:
                 continue
-            if rule.tool not in candidate_tools and rule.tool != "*":
+            if rule.tool not in {tool_name, "*"}:
                 continue
             if fnmatch.fnmatch(value, rule.pattern):
                 return rule
@@ -88,14 +86,3 @@ class PermissionEngine:
             reason=rule.description or f"Denied by rule: {rule.pattern}",
             matched_rule=rule,
         )
-
-
-def _equivalent_tool_names(tool_name: str) -> set[str]:
-    """返回一个工具名在权限规则匹配时应视为等价的名称集合。"""
-    names = {tool_name}
-    server_name, item_name = parse_dynamic_mcp_name(tool_name)
-    if server_name == "self_mcp" and item_name:
-        names.add(item_name)
-    elif tool_name and not tool_name.startswith("mcp__"):
-        names.add(build_mcp_tool_name("self_mcp", tool_name))
-    return names

@@ -26,14 +26,6 @@ LANGUAGE_IDS = {
     ".go": "go",
 }
 
-
-@dataclass(slots=True)
-class LspNotification:
-    """表示一条要发往 LSP server 的 JSON-RPC 通知。"""
-    method: str
-    params: dict[str, object]
-
-
 @dataclass(slots=True)
 class _LspProcess:
     """保存一个已启动 LSP 进程及其根目录和请求计数器。"""

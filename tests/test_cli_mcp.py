@@ -159,7 +159,7 @@ def test_mcp_get_treats_unsupported_capabilities_as_optional(monkeypatch, tmp_pa
 
 def test_mcp_get_reuses_same_event_loop_and_closes_manager(monkeypatch, tmp_path):
     """测试 mcp get 会在单次 asyncio.run 内完成全部操作，并显式关闭 manager。"""
-    server_name = "self_mcp"
+    server_name = "demo-stdio"
     observed: dict[str, object] = {"loop_id": None, "closed": False}
 
     class FakeManager:
@@ -176,9 +176,9 @@ def test_mcp_get_reuses_same_event_loop_and_closes_manager(monkeypatch, tmp_path
                     name=server_name,
                     scope="project",
                     type="stdio",
-                    command="claude-code-thy",
-                    args=("mcp", "serve"),
-                    description="loopback stdio server",
+                    command="demo-mcp",
+                    args=("--stdio",),
+                    description="demo stdio server",
                 ),
                 tool_count=1,
                 prompt_count=0,
@@ -191,7 +191,7 @@ def test_mcp_get_reuses_same_event_loop_and_closes_manager(monkeypatch, tmp_path
             assert observed["loop_id"] == id(asyncio.get_running_loop())
             return [
                 McpToolDefinition(
-                    name="mcp__self_mcp__read",
+                    name="mcp__demo_stdio__read",
                     description="read tool",
                     input_schema={},
                 )
@@ -218,6 +218,6 @@ def test_mcp_get_reuses_same_event_loop_and_closes_manager(monkeypatch, tmp_path
     result = runner.invoke(app, ["mcp", "get", server_name], catch_exceptions=False, env={})
 
     assert result.exit_code == 0
-    assert "Name: self_mcp" in result.stderr
-    assert "Tools: mcp__self_mcp__read" in result.stderr
+    assert "Name: demo-stdio" in result.stderr
+    assert "Tools: mcp__demo_stdio__read" in result.stderr
     assert observed["closed"] is True

@@ -1,6 +1,5 @@
-from .manager import LspManager, LspNotification
+from .manager import LspManager
 
 __all__ = [
     "LspManager",
-    "LspNotification",
 ]

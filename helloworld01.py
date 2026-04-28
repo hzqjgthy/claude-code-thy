@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""A simple Hello World script."""
+"""
+Hello World 示例脚本
+"""
 
 def main():
-    """Print a greeting message."""
     print("Hello, World!")
 
 if __name__ == "__main__":

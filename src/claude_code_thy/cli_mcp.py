@@ -16,7 +16,6 @@ from claude_code_thy.mcp import (
     get_project_mcp_config_path,
     remove_project_mcp_server,
 )
-from claude_code_thy.mcp.server import serve_mcp_stdio
 from claude_code_thy.settings import AppSettings
 
 
@@ -240,14 +239,3 @@ def show_mcp_config() -> None:
         console.print(f"[yellow]当前没有项目级 MCP 配置：{path}[/yellow]")
         raise typer.Exit(code=0)
     console.print(path.read_text(encoding="utf-8"))
-
-
-@mcp_app.command("serve")
-def serve_mcp() -> None:
-    """以 stdio 方式启动项目内置的 MCP server。"""
-    asyncio.run(serve_mcp_stdio(os.getcwd()))
-
-
-async def _snapshot_async(manager: McpClientManager):
-    """为无需刷新时提供一个统一的异步快照入口。"""
-    return manager.snapshot()

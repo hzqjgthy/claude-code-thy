@@ -17,7 +17,6 @@
   - MCP skills
   - MCP elicitation
   - MCP OAuth / Auth
-- 作为 MCP Server，对外暴露新项目自身的内置工具
 
 ### 1.2 对齐原则
 
@@ -106,7 +105,6 @@
 
 ### 2.6 CLI
 
-- `claude mcp serve`
 - `claude mcp list`
 - `claude mcp get`
 - `claude mcp add`
@@ -114,13 +112,6 @@
 - `claude mcp remove`
 - `claude mcp reset-choices`
 - Desktop 导入流程
-
-### 2.7 作为 MCP Server
-
-- 启动 stdio MCP server
-- 暴露内部工具列表
-- 支持 `ListTools`
-- 支持 `CallTool`
 
 ## 3. 新项目当前状态
 
@@ -572,30 +563,12 @@ src/claude_code_thy/cli_mcp.py
 - `claude-code-thy mcp add-json`
 - `claude-code-thy mcp remove`
 - `claude-code-thy mcp reset-choices`
-- `claude-code-thy mcp serve`
 
 验收：
 
 - 不进 TUI 也能完整管理 MCP server
 
-## Phase 8：作为 MCP Server 对外暴露
-
-目标：
-
-- 让新项目也能像原项目一样，作为 MCP server 给外部使用
-
-任务：
-
-- 建立 MCP server 入口
-- 暴露 `ListTools`
-- 暴露 `CallTool`
-- 使用现有 `ToolRuntime` 作为内部执行器
-
-验收：
-
-- 外部 MCP client 可以调用新项目暴露出的内置工具
-
-## Phase 9：高级 transport 与企业特性补齐
+## Phase 8：高级 transport 与企业特性补齐
 
 目标：
 
@@ -632,7 +605,6 @@ src/claude_code_thy/cli_mcp.py
 | `src/tools/McpAuthTool/`                    | `src/claude_code_thy/tools/McpAuthTool/`                                        |
 | `src/tools/ListMcpResourcesTool/`           | `src/claude_code_thy/tools/ListMcpResourcesTool/`                               |
 | `src/tools/ReadMcpResourceTool/`            | `src/claude_code_thy/tools/ReadMcpResourceTool/`                                |
-| `src/entrypoints/mcp.ts`                    | `src/claude_code_thy/mcp/server.py`                                             |
 | `src/cli/handlers/mcp.tsx`                  | `src/claude_code_thy/cli_mcp.py`                                                |
 
 
@@ -682,7 +654,6 @@ src/claude_code_thy/cli_mcp.py
 - `mcp get`
 - `mcp add-json`
 - `mcp remove`
-- `mcp serve`
 
 ## 9. 风险与处理策略
 
@@ -794,4 +765,3 @@ src/claude_code_thy/cli_mcp.py
 - 先按 Phase 1 到 Phase 4 把“核心可用 MCP client”做完
 - 再补 Phase 5 到 Phase 8 的原项目高级能力
 - 最后进入 Phase 9 做高阶 transport 和企业能力收尾
-
