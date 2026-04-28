@@ -1,8 +1,9 @@
 from .manager import SessionLogManager
-from .records import SessionLogRecord, ToolCallLogContext
+from .records import LlmTurnLogContext, SessionLogRecord, ToolCallLogContext
 
 __all__ = [
     "SessionLogManager",
+    "LlmTurnLogContext",
     "SessionLogRecord",
     "ToolCallLogContext",
 ]

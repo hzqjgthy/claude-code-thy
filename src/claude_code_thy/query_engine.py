@@ -88,6 +88,8 @@ class QueryEngine:
         *,
         approved: bool,
         tool_event_handler: ToolEventHandler | None = None,
+        text_delta_handler: TextDeltaHandler | None = None,
+        message_added_handler: MessageAddedHandler | None = None,
     ) -> SessionTranscript:
         """在用户确认后恢复上一次被权限中断的工具调用。"""
         tool_name = str(pending.get("tool_name", "")).strip()
@@ -95,6 +97,8 @@ class QueryEngine:
         input_data = pending.get("input_data", {})
         original_input = pending.get("original_input", {})
         request = pending.get("request", {})
+        streaming = text_delta_handler is not None or message_added_handler is not None
+        log_manager = self._session_log_manager(session)
 
         if not tool_name or not isinstance(input_data, dict):
             clear_pending_permission(session)
@@ -121,7 +125,7 @@ class QueryEngine:
                     log_context=log_context,
                 )
             except PermissionRequiredError as error:
-                return self._pause_for_permission(
+                paused = self._pause_for_permission(
                     session,
                     error,
                     tool_name=tool_name,
@@ -129,6 +133,9 @@ class QueryEngine:
                     tool_use_id=tool_use_id,
                     tool_event_handler=tool_event_handler,
                 )
+                if streaming:
+                    self._emit_message_added(session, message_added_handler)
+                return paused
             except ToolError as error:
                 self._append_tool_error(
                     session,
@@ -137,6 +144,16 @@ class QueryEngine:
                     tool_use_id=tool_use_id,
                 )
                 self.session_store.save(session)
+                if log_manager is not None:
+                    log_manager.finish_llm_turn(session, status="success")
+                if streaming:
+                    self._emit_message_added(session, message_added_handler)
+                    return await self._complete_until_pause_stream(
+                        session,
+                        tool_event_handler=tool_event_handler,
+                        text_delta_handler=text_delta_handler,
+                        message_added_handler=message_added_handler,
+                    )
                 return await self._complete_until_pause(
                     session,
                     tool_event_handler=tool_event_handler,
@@ -144,8 +161,19 @@ class QueryEngine:
 
             self._append_tool_result(session, result, tool_use_id=tool_use_id)
             self.session_store.save(session)
+            if log_manager is not None:
+                log_manager.finish_llm_turn(session, status="success")
+            if streaming:
+                self._emit_message_added(session, message_added_handler)
             if self._should_pause_after_tool_result(tool_name):
                 return session
+            if streaming:
+                return await self._complete_until_pause_stream(
+                    session,
+                    tool_event_handler=tool_event_handler,
+                    text_delta_handler=text_delta_handler,
+                    message_added_handler=message_added_handler,
+                )
             return await self._complete_until_pause(
                 session,
                 tool_event_handler=tool_event_handler,
@@ -169,11 +197,20 @@ class QueryEngine:
             tool_use_id=tool_use_id,
             original_input=original_input if isinstance(original_input, dict) else None,
         )
-        log_manager = self._session_log_manager(session)
         if log_manager is not None and log_context is not None:
             log_manager.finish_tool_call(session, log_context, rejected)
         self._append_tool_result(session, rejected, tool_use_id=tool_use_id)
         self.session_store.save(session)
+        if log_manager is not None:
+            log_manager.finish_llm_turn(session, status="success")
+        if streaming:
+            self._emit_message_added(session, message_added_handler)
+            return await self._complete_until_pause_stream(
+                session,
+                tool_event_handler=tool_event_handler,
+                text_delta_handler=text_delta_handler,
+                message_added_handler=message_added_handler,
+            )
         return await self._complete_until_pause(
             session,
             tool_event_handler=tool_event_handler,
@@ -190,6 +227,7 @@ class QueryEngine:
             request_preview: dict[str, object] | None = None
             rendered_prompt: RenderedPrompt | None = None
             tools = []
+            log_manager = self._session_log_manager(session)
             try:
                 await self.tool_runtime.warm_tool_specs_for_session(session)
                 rendered_prompt = self._build_rendered_prompt(session)
@@ -198,12 +236,17 @@ class QueryEngine:
                     allow_sync_refresh=False,
                 )
                 request_preview = self._build_request_preview_safe(session, tools, rendered_prompt)
-                log_manager = self._session_log_manager(session)
-                if log_manager is not None and rendered_prompt is not None and request_preview is not None:
+                if log_manager is not None and rendered_prompt is not None:
+                    log_manager.start_llm_turn(
+                        session,
+                        provider_name=self.provider.name,
+                        request_preview=request_preview or {},
+                        rendered_prompt=rendered_prompt,
+                    )
                     log_manager.record_provider_request(
                         session,
                         provider_name=self.provider.name,
-                        request_preview=request_preview,
+                        request_preview=request_preview or {},
                         rendered_prompt=rendered_prompt,
                     )
                 response = await self.provider.complete(
@@ -212,7 +255,6 @@ class QueryEngine:
                     prompt=rendered_prompt,
                 )
             except ProviderError as error:
-                log_manager = self._session_log_manager(session)
                 if log_manager is not None:
                     log_manager.record_provider_error(
                         session,
@@ -221,11 +263,11 @@ class QueryEngine:
                         provider_name=self.provider.name,
                         request_preview=request_preview,
                     )
+                    log_manager.finish_llm_turn(session, status="error")
                 session.add_message("assistant", f"API 调用失败：{error}")
                 self.session_store.save(session)
                 return session
 
-            log_manager = self._session_log_manager(session)
             if log_manager is not None:
                 log_manager.record_provider_response(session, response)
 
@@ -245,6 +287,8 @@ class QueryEngine:
             self.session_store.save(session)
 
             if not response.tool_calls:
+                if log_manager is not None:
+                    log_manager.finish_llm_turn(session, status="success")
                 return session
 
             for call in response.tool_calls:
@@ -306,7 +350,12 @@ class QueryEngine:
                 self._append_tool_result(session, result, tool_use_id=call.id)
                 self.session_store.save(session)
                 if self._should_pause_after_tool_result(call.name):
+                    if log_manager is not None:
+                        log_manager.finish_llm_turn(session, status="success")
                     return session
+
+            if log_manager is not None:
+                log_manager.finish_llm_turn(session, status="success")
 
         session.add_message(
             "assistant",
@@ -325,14 +374,38 @@ class QueryEngine:
     ) -> SessionTranscript:
         """循环执行流式“模型回复 -> 工具调用”，并在文本增量到达时向外发射。"""
         for _ in range(self.max_iterations):
+            request_preview: dict[str, object] | None = None
+            rendered_prompt: RenderedPrompt | None = None
+            tools = []
+            log_manager = self._session_log_manager(session)
             try:
                 await self.tool_runtime.warm_tool_specs_for_session(session)
+                rendered_prompt = self._build_rendered_prompt(session)
+                tools = self.tool_runtime.list_tool_specs_for_session(
+                    session,
+                    allow_sync_refresh=False,
+                )
+                request_preview = self._build_request_preview_safe(session, tools, rendered_prompt)
+                if log_manager is not None and rendered_prompt is not None:
+                    log_manager.start_llm_turn(
+                        session,
+                        provider_name=self.provider.name,
+                        request_preview=request_preview or {},
+                        rendered_prompt=rendered_prompt,
+                    )
+                    log_manager.record_provider_request(
+                        session,
+                        provider_name=self.provider.name,
+                        request_preview=request_preview or {},
+                        rendered_prompt=rendered_prompt,
+                    )
                 response = await self._stream_provider_response(
                     session,
+                    rendered_prompt=rendered_prompt,
+                    tools=tools,
                     text_delta_handler=text_delta_handler,
                 )
             except ProviderError as error:
-                log_manager = self._session_log_manager(session)
                 if log_manager is not None:
                     log_manager.record_provider_error(
                         session,
@@ -340,12 +413,12 @@ class QueryEngine:
                         error=error,
                         provider_name=self.provider.name,
                     )
+                    log_manager.finish_llm_turn(session, status="error")
                 session.add_message("assistant", f"API 调用失败：{error}")
                 self.session_store.save(session)
                 self._emit_message_added(session, message_added_handler)
                 return session
 
-            log_manager = self._session_log_manager(session)
             if log_manager is not None:
                 log_manager.record_provider_response(session, response)
 
@@ -366,6 +439,8 @@ class QueryEngine:
             self._emit_message_added(session, message_added_handler)
 
             if not response.tool_calls:
+                if log_manager is not None:
+                    log_manager.finish_llm_turn(session, status="success")
                 return session
 
             for call in response.tool_calls:
@@ -431,7 +506,12 @@ class QueryEngine:
                 self.session_store.save(session)
                 self._emit_message_added(session, message_added_handler)
                 if self._should_pause_after_tool_result(call.name):
+                    if log_manager is not None:
+                        log_manager.finish_llm_turn(session, status="success")
                     return session
+
+            if log_manager is not None:
+                log_manager.finish_llm_turn(session, status="success")
 
         session.add_message(
             "assistant",
@@ -603,24 +683,13 @@ class QueryEngine:
         self,
         session: SessionTranscript,
         *,
+        rendered_prompt: RenderedPrompt,
+        tools,
         text_delta_handler: TextDeltaHandler | None = None,
     ) -> ProviderResponse:
         """消费 provider 的流式事件，并在结束后还原出完整 ProviderResponse。"""
         final_response: ProviderResponse | None = None
-        rendered_prompt = self._build_rendered_prompt(session)
-        tools = self.tool_runtime.list_tool_specs_for_session(
-            session,
-            allow_sync_refresh=False,
-        )
-        request_preview = self._build_request_preview_safe(session, tools, rendered_prompt)
         log_manager = self._session_log_manager(session)
-        if log_manager is not None and request_preview is not None:
-            log_manager.record_provider_request(
-                session,
-                provider_name=self.provider.name,
-                request_preview=request_preview,
-                rendered_prompt=rendered_prompt,
-            )
         async for event in self.provider.stream_complete(
             session,
             tools,

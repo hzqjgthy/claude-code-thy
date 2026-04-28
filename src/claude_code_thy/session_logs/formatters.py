@@ -4,52 +4,14 @@ import json
 
 from claude_code_thy.settings import SessionLogSettings
 
-from .records import SessionLogRecord
-from .serializers import format_local_time
-
 
 EQ_LINE = "=" * 80
-DASH_LINE = "-" * 80
+DASH_LINE = "-" * 76
 ERROR_LINE = "!" * 80
 
 
-def render_record(record: SessionLogRecord, settings: SessionLogSettings) -> str:
-    """把统一日志事件渲染成人类可读文本。"""
-    event = record.event
-    data = record.data
-
-    if event == "session_started":
-        return _render_session_started(data)
-    if event == "session_resumed":
-        return _render_session_resumed(data)
-    if event == "turn_started":
-        return _render_turn_started(record.turn_index, data)
-    if event == "command_parsed":
-        return _render_command_parsed(data)
-    if event == "provider_request":
-        return _render_provider_request(data)
-    if event == "provider_error":
-        return _render_provider_error(record.turn_index, data)
-    if event == "runtime_error":
-        return _render_runtime_error(record.turn_index, data)
-    if event == "message_added":
-        return _render_message_added(data)
-    if event == "tool_event":
-        return _render_tool_event(data)
-    if event == "tool_call_started":
-        return _render_tool_call_started(data)
-    if event == "tool_call_finished":
-        return _render_tool_call_finished(data, settings)
-    if event == "permission_requested":
-        return _render_permission_requested(data)
-    if event == "permission_resolved":
-        return _render_permission_resolved(data)
-    if event == "turn_finished":
-        return _render_turn_finished(data)
-    return ""
-
-
-def _render_session_started(data: dict[str, object]) -> str:
+def render_session_started_block(data: dict[str, object]) -> str:
+    """渲染一条会话日志启动头。"""
     lines = [
         EQ_LINE,
         "会话日志开始",
@@ -68,7 +30,8 @@ def _render_session_started(data: dict[str, object]) -> str:
     return "\n".join(lines)
 
 
-def _render_session_resumed(data: dict[str, object]) -> str:
+def render_session_resumed_block(data: dict[str, object]) -> str:
+    """渲染一条会话恢复头。"""
     lines = [
         DASH_LINE,
         "会话恢复",
@@ -81,10 +44,11 @@ def _render_session_resumed(data: dict[str, object]) -> str:
     return "\n".join(lines)
 
 
-def _render_turn_started(turn_index: int, data: dict[str, object]) -> str:
+def render_turn_started_block(turn_index: int, data: dict[str, object]) -> str:
+    """渲染交互轮开始块。"""
     lines = [
         EQ_LINE,
-        f"第 {turn_index} 轮",
+        f"交互轮 {turn_index}",
         f"开始时间: {str(data.get('started_at_local_readable', ''))}",
         f"输入类型: {str(data.get('input_kind', 'chat'))}",
         f"流式输出: {'开启' if bool(data.get('stream')) else '关闭'}",
@@ -96,7 +60,8 @@ def _render_turn_started(turn_index: int, data: dict[str, object]) -> str:
     return "\n".join(lines)
 
 
-def _render_command_parsed(data: dict[str, object]) -> str:
+def render_command_parsed_block(data: dict[str, object]) -> str:
+    """渲染 slash 命令解析块。"""
     lines = [
         "[Slash 命令]",
         f"- 原始命令: {str(data.get('raw_prompt', ''))}",
@@ -115,166 +80,22 @@ def _render_command_parsed(data: dict[str, object]) -> str:
     return "\n".join(lines)
 
 
-def _render_provider_request(data: dict[str, object]) -> str:
-    summary = data.get("request_preview_summary")
-    if not isinstance(summary, dict):
-        return ""
+def render_turn_paused_block(turn_index: int, data: dict[str, object]) -> str:
+    """渲染交互轮因权限确认而暂停的提示块。"""
     lines = [
-        "[Provider 请求]",
-        f"- Provider: {str(summary.get('provider', ''))}",
-        f"- Model: {str(summary.get('model', ''))}",
-        f"- Endpoint: {str(summary.get('endpoint', ''))}",
-    ]
-    if "tools_count" in summary:
-        lines.append(f"- Tools Count: {summary['tools_count']}")
-    lines.append("- Request Preview: 已记录")
-    lines.append("")
-    return "\n".join(lines)
-
-
-def _render_provider_error(turn_index: int, data: dict[str, object]) -> str:
-    lines = [
-        ERROR_LINE,
-        "错误",
-        f"时间: {str(data.get('occurred_at_local_readable', ''))}",
-        f"第几轮: {turn_index}",
-        f"阶段: {str(data.get('stage', 'provider'))}",
-        f"错误类型: {str(data.get('error_type', 'Error'))}",
-        f"错误信息: {str(data.get('message', ''))}",
-    ]
-    provider_name = str(data.get("provider_name", ""))
-    if provider_name:
-        lines.append(f"Provider: {provider_name}")
-    tool_name = str(data.get("tool_name", ""))
-    if tool_name:
-        lines.append(f"相关工具: {tool_name}")
-    tool_use_id = str(data.get("tool_use_id", ""))
-    if tool_use_id:
-        lines.append(f"tool_use_id: {tool_use_id}")
-    input_data = data.get("input_data")
-    if input_data not in (None, "", {}):
-        lines.extend(["", "相关输入:", _pretty_json(input_data)])
-    summary = data.get("request_preview_summary")
-    if isinstance(summary, dict) and summary:
-        lines.extend(["", "最近一次请求摘要:"])
-        for key in ("model", "endpoint", "tools_count", "message_count", "input_count"):
-            if key in summary and str(summary[key]).strip():
-                lines.append(f"- {key}: {summary[key]}")
-    lines.extend([ERROR_LINE, ""])
-    return "\n".join(lines)
-
-
-def _render_runtime_error(turn_index: int, data: dict[str, object]) -> str:
-    lines = [
-        ERROR_LINE,
-        "运行时错误",
-        f"时间: {str(data.get('occurred_at_local_readable', ''))}",
-        f"第几轮: {turn_index}",
-        f"阶段: {str(data.get('stage', 'runtime'))}",
-        f"错误类型: {str(data.get('error_type', 'Error'))}",
-        f"错误信息: {str(data.get('message', ''))}",
-        ERROR_LINE,
+        f"交互轮 {turn_index} 暂停",
+        f"原因: {str(data.get('reason', 'pending_permission'))}",
+        EQ_LINE,
         "",
     ]
     return "\n".join(lines)
 
 
-def _render_message_added(data: dict[str, object]) -> str:
-    role = str(data.get("role", ""))
-    text = str(data.get("text", ""))
-    if role != "assistant" or not text.strip():
-        return ""
+def render_turn_finished_block(turn_index: int, data: dict[str, object]) -> str:
+    """渲染交互轮结束块。"""
     lines = [
-        "[Assistant]",
-        text,
-        "",
-    ]
-    return "\n".join(lines)
-
-
-def _render_tool_event(data: dict[str, object]) -> str:
-    summary = str(data.get("summary", ""))
-    phase = str(data.get("phase", ""))
-    tool_name = str(data.get("tool_name", ""))
-    if not summary and not phase:
-        return ""
-    lines = ["[工具事件]"]
-    if tool_name:
-        lines.append(f"- tool: {tool_name}")
-    if phase:
-        lines.append(f"- phase: {phase}")
-    if summary:
-        lines.append(f"- summary: {summary}")
-    detail = str(data.get("detail", ""))
-    if detail:
-        lines.extend(["- detail:", detail])
-    lines.append("")
-    return "\n".join(lines)
-
-
-def _render_tool_call_started(data: dict[str, object]) -> str:
-    lines = [
-        f"[工具调用 {int(data.get('ordinal', 0) or 0)}]",
-        f"- 名称: {str(data.get('tool_name', ''))}",
-    ]
-    tool_use_id = str(data.get("tool_use_id", ""))
-    if tool_use_id:
-        lines.append(f"- tool_use_id: {tool_use_id}")
-    lines.append(f"- surface: {str(data.get('surface', ''))}")
-    lines.extend(["- 输入:", _pretty_json(data.get("input_data", {})), ""])
-    return "\n".join(lines)
-
-
-def _render_tool_call_finished(data: dict[str, object], settings: SessionLogSettings) -> str:
-    status_text = "成功" if bool(data.get("ok")) else "失败"
-    lines = [
-        f"[工具结果 {int(data.get('ordinal', 0) or 0)}]",
-        f"- 状态: {status_text}",
-        f"- 摘要: {str(data.get('summary', ''))}",
-    ]
-    output = str(data.get("output", ""))
-    preview = str(data.get("preview", ""))
-    body = output or preview
-    if body:
-        rendered_output, truncated = _truncate_tool_output(body, settings)
-        lines.extend(["- 输出:", rendered_output])
-        if truncated:
-            lines.append("完整工具输出见同名 .jsonl")
-    lines.append("")
-    return "\n".join(lines)
-
-
-def _render_permission_requested(data: dict[str, object]) -> str:
-    lines = [
-        "[权限请求]",
-        f"- 工具: {str(data.get('tool_name', ''))}",
-        f"- 原因: {str(data.get('reason', ''))}",
-    ]
-    tool_use_id = str(data.get("tool_use_id", ""))
-    if tool_use_id:
-        lines.append(f"- tool_use_id: {tool_use_id}")
-    lines.append("")
-    return "\n".join(lines)
-
-
-def _render_permission_resolved(data: dict[str, object]) -> str:
-    lines = [
-        "[权限结果]",
-        f"- 结果: {'已同意' if bool(data.get('approved')) else '已拒绝'}",
-        f"- 工具: {str(data.get('tool_name', ''))}",
-    ]
-    tool_use_id = str(data.get("tool_use_id", ""))
-    if tool_use_id:
-        lines.append(f"- tool_use_id: {tool_use_id}")
-    lines.append("")
-    return "\n".join(lines)
-
-
-def _render_turn_finished(data: dict[str, object]) -> str:
-    status = str(data.get("status", "success"))
-    lines = [
-        f"第 {int(data.get('turn_index', 0) or 0)} 轮结束",
-        f"结束状态: {status}",
+        f"交互轮 {turn_index} 结束",
+        f"结束状态: {str(data.get('status', 'success'))}",
         f"新增消息数: {int(data.get('new_message_count', 0) or 0)}",
         EQ_LINE,
         "",
@@ -282,11 +103,142 @@ def _render_turn_finished(data: dict[str, object]) -> str:
     return "\n".join(lines)
 
 
+def render_assistant_message_block(text: str) -> str:
+    """渲染一条不属于 LLM 轮块的 assistant 直接输出。"""
+    return "\n".join(
+        [
+            "[Assistant]",
+            text,
+            "",
+        ]
+    )
+
+
+def render_llm_turn_block(llm_turn: dict[str, object], settings: SessionLogSettings) -> str:
+    """按“交互轮 -> LLM 轮 -> 工具调用”的层级渲染一个完整 LLM 块。"""
+    interaction_turn_index = int(llm_turn.get("interaction_turn_index", 0) or 0)
+    llm_turn_index = int(llm_turn.get("llm_turn_index", 0) or 0)
+    status = str(llm_turn.get("status", "success") or "success")
+    request_summary = llm_turn.get("request_preview_summary")
+    assistant_text = str(llm_turn.get("assistant_text", "")).strip()
+    tool_calls = llm_turn.get("tool_calls")
+    error = llm_turn.get("error")
+
+    lines = [
+        DASH_LINE,
+        f"LLM 轮 {interaction_turn_index}.{llm_turn_index}",
+        f"开始时间: {str(llm_turn.get('started_at_local_readable', ''))}",
+        f"结束状态: {status}",
+    ]
+
+    if isinstance(request_summary, dict):
+        lines.extend(
+            [
+                "",
+                "[请求摘要]",
+                f"- Provider: {str(llm_turn.get('provider_name', ''))}",
+            ]
+        )
+        for key in ("model", "endpoint", "tools_count", "message_count", "input_count"):
+            value = request_summary.get(key)
+            if value in (None, "", []):
+                continue
+            lines.append(f"- {key}: {value}")
+
+    if assistant_text:
+        lines.extend(["", "[LLM 输出]", assistant_text])
+    else:
+        lines.extend(["", "[LLM 输出]", "(无直接文本输出，仅工具调用或控制块)"])
+
+    if isinstance(tool_calls, list) and tool_calls:
+        lines.append("")
+        lines.append("[工具调用]")
+        for tool in tool_calls:
+            if not isinstance(tool, dict):
+                continue
+            lines.extend(_render_tool_call_block(tool, settings))
+
+    if isinstance(error, dict) and error:
+        lines.extend(
+            [
+                "",
+                "[LLM 错误]",
+                f"- 类型: {str(error.get('error_type', 'Error'))}",
+                f"- 信息: {str(error.get('message', ''))}",
+            ]
+        )
+
+    lines.extend([DASH_LINE, ""])
+    return "\n".join(lines)
+
+
+def _render_tool_call_block(tool: dict[str, object], settings: SessionLogSettings) -> list[str]:
+    ordinal = int(tool.get("ordinal", 0) or 0)
+    lines = [
+        f"{ordinal}. {str(tool.get('tool_name', ''))}",
+    ]
+    tool_use_id = str(tool.get("tool_use_id", "")).strip()
+    if tool_use_id:
+        lines.append(f"   tool_use_id: {tool_use_id}")
+    surface = str(tool.get("surface", "")).strip()
+    if surface:
+        lines.append(f"   surface: {surface}")
+    lines.extend(
+        [
+            "   输入:",
+            _indent_block(_pretty_json(tool.get("input_data", {})), "   "),
+        ]
+    )
+
+    permission_requested = tool.get("permission_requested")
+    if isinstance(permission_requested, dict):
+        lines.extend(
+            [
+                "   权限请求:",
+                f"   - 原因: {str(permission_requested.get('reason', ''))}",
+            ]
+        )
+
+    permission_resolved = tool.get("permission_resolved")
+    if isinstance(permission_resolved, dict):
+        lines.extend(
+            [
+                "   权限结果:",
+                f"   - 结果: {'已同意' if bool(permission_resolved.get('approved')) else '已拒绝'}",
+            ]
+        )
+
+    result = tool.get("result")
+    if isinstance(result, dict):
+        lines.extend(
+            [
+                f"   状态: {'成功' if bool(result.get('ok')) else '失败'}",
+            ]
+        )
+        summary = str(result.get("summary", "")).strip()
+        if summary:
+            lines.append(f"   摘要: {summary}")
+        output = str(result.get("output", "") or result.get("preview", "")).strip()
+        if output:
+            rendered_output, truncated = _truncate_tool_output(output, settings)
+            lines.extend(["   输出:", _indent_block(rendered_output, "   ")])
+            if truncated:
+                lines.append("   完整工具输出见同名 .jsonl")
+    return lines
+
+
 def _pretty_json(value: object) -> str:
     try:
         return json.dumps(value, ensure_ascii=False, indent=2)
     except TypeError:
         return str(value)
+
+
+def _indent_block(text: str, prefix: str) -> str:
+    stripped = text.rstrip()
+    if not stripped:
+        return prefix
+    return "\n".join(f"{prefix}{line}" for line in stripped.splitlines())
 
 
 def _truncate_tool_output(text: str, settings: SessionLogSettings) -> tuple[str, bool]:

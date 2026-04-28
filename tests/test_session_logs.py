@@ -2,7 +2,8 @@ import asyncio
 import json
 
 from claude_code_thy.models import SessionTranscript
-from claude_code_thy.providers.base import Provider, ProviderError, ProviderResponse
+from claude_code_thy.prompts.types import PromptBundle, PromptContextData, RenderedPrompt
+from claude_code_thy.providers.base import Provider, ProviderError, ProviderResponse, ToolCallRequest
 from claude_code_thy.runtime import ConversationRuntime
 from claude_code_thy.session.store import SessionStore
 from claude_code_thy.session_logs import SessionLogManager
@@ -21,6 +22,21 @@ class EchoProvider(Provider):
             display_text="这是 assistant 的原文输出，不应该被摘要。",
             content_blocks=[{"type": "text", "text": "这是 assistant 的原文输出，不应该被摘要。"}],
         )
+
+
+def _rendered_prompt() -> RenderedPrompt:
+    return RenderedPrompt(
+        bundle=PromptBundle(
+            session_id="s1",
+            provider_name="demo",
+            model="glm-4.5",
+            workspace_root="/tmp",
+            sections=[],
+            context_data=PromptContextData(variables={}),
+        ),
+        system_text="",
+        user_context_text="",
+    )
 
 
 def test_conversation_runtime_writes_dual_session_logs(tmp_path):
@@ -43,9 +59,10 @@ def test_conversation_runtime_writes_dual_session_logs(tmp_path):
     assert log_files[0].stem == jsonl_files[0].stem
 
     log_text = log_files[0].read_text(encoding="utf-8")
-    assert "[Assistant]" in log_text
+    assert "交互轮 1" in log_text
+    assert "LLM 轮 1.1" in log_text
+    assert "[LLM 输出]" in log_text
     assert "这是 assistant 的原文输出，不应该被摘要。" in log_text
-    assert "[Provider 请求]" in log_text
 
     jsonl_records = [
         json.loads(line)
@@ -54,6 +71,8 @@ def test_conversation_runtime_writes_dual_session_logs(tmp_path):
     ]
     assert any(record["event"] == "session_started" for record in jsonl_records)
     assert any(record["event"] == "turn_started" for record in jsonl_records)
+    assert any(record["event"] == "llm_turn_started" for record in jsonl_records)
+    assert any(record["event"] == "llm_turn_finished" for record in jsonl_records)
     assert any(
         record["event"] == "message_added"
         and record["data"]["role"] == "assistant"
@@ -75,6 +94,16 @@ def test_session_log_manager_truncates_long_tool_output_only_in_human_log(tmp_pa
 
     manager.record_session_started(session, provider_name="demo", model="glm-4.5")
     manager.start_turn(session, prompt="测试长工具输出", input_kind="chat", stream=False)
+    manager.start_llm_turn(
+        session,
+        provider_name="demo",
+        request_preview={
+            "provider": "demo",
+            "endpoint": "https://example.com",
+            "json_body": {"model": "glm-4.5", "tools": []},
+        },
+        rendered_prompt=_rendered_prompt(),
+    )
     context = manager.begin_tool_call(
         session,
         tool_name="demo_tool",
@@ -91,12 +120,15 @@ def test_session_log_manager_truncates_long_tool_output_only_in_human_log(tmp_pa
         output=long_output,
     )
     manager.finish_tool_call(session, context, result)
+    manager.finish_llm_turn(session, status="success")
     manager.finish_turn(session, new_message_count=0, ended_with_error=False, ended_with_pending_permission=False)
 
     log_path = next((tmp_path / "session-logs").glob("*.log"))
     jsonl_path = next((tmp_path / "session-logs").glob("*.jsonl"))
 
     log_text = log_path.read_text(encoding="utf-8")
+    assert "LLM 轮 1.1" in log_text
+    assert "[工具调用]" in log_text
     assert "HEAD-1234567890" in log_text
     assert "TAIL-0987654321" in log_text
     assert "中间已省略" in log_text
@@ -137,8 +169,8 @@ def test_resume_continues_same_log_bundle_and_writes_resume_marker(tmp_path):
 
     log_text = log_files[0].read_text(encoding="utf-8")
     assert "会话恢复" in log_text
-    assert "第一轮" in log_text
-    assert "第二轮" in log_text
+    assert "交互轮 1" in log_text
+    assert "交互轮 2" in log_text
 
 
 class FailingProvider(Provider):
@@ -174,3 +206,95 @@ def test_turn_finished_marks_error_when_provider_error_is_logged(tmp_path):
     turn_finished = next(record for record in records if record["event"] == "turn_finished")
     assert turn_finished["data"]["ended_with_error"] is True
     assert turn_finished["data"]["status"] == "error"
+
+
+class PermissionProvider(Provider):
+    """第一次发起工具调用，第二次输出最终 assistant 文本。"""
+
+    name = "permission-provider"
+
+    async def complete(self, session, tools, prompt=None):
+        _ = (tools, prompt)
+        has_tool_result = any(message.role == "tool" for message in session.messages)
+        if not has_tool_result:
+            return ProviderResponse(
+                display_text="我先删除这个文件。",
+                content_blocks=[
+                    {
+                        "type": "tool_use",
+                        "id": "toolu_rm_1",
+                        "name": "bash",
+                        "input": {
+                            "command": "rm helloworld.py",
+                            "description": "删除 helloworld.py",
+                        },
+                    }
+                ],
+                tool_calls=[
+                    ToolCallRequest(
+                        id="toolu_rm_1",
+                        name="bash",
+                        input={
+                            "command": "rm helloworld.py",
+                            "description": "删除 helloworld.py",
+                        },
+                    )
+                ],
+            )
+        return ProviderResponse(
+            display_text="文件已删除。",
+            content_blocks=[{"type": "text", "text": "文件已删除。"}],
+        )
+
+
+def test_permission_resume_keeps_same_interaction_turn_and_groups_tool_under_same_llm_round(tmp_path):
+    """测试权限暂停与恢复后，`.log` 仍按一个交互轮和多个 LLM 轮清晰分组。"""
+    settings_dir = tmp_path / ".claude-code-thy"
+    settings_dir.mkdir()
+    (settings_dir / "settings.local.json").write_text(
+        json.dumps(
+            {
+                "permissions": [
+                    {
+                        "effect": "ask",
+                        "tool": "bash",
+                        "target": "command",
+                        "pattern": "rm *",
+                        "description": "删除文件需要确认",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "helloworld.py").write_text("print('hello')\n", encoding="utf-8")
+
+    store = SessionStore(root_dir=tmp_path / "sessions")
+    session = store.create(cwd=str(tmp_path), model="glm-4.5", provider_name="permission-provider")
+    runtime = ConversationRuntime(
+        provider=PermissionProvider(),
+        session_store=store,
+    )
+
+    prompted = asyncio.run(runtime.handle(session, "删除 helloworld.py"))
+    assert prompted.session.runtime_state.get("pending_permission") is not None
+
+    resumed = asyncio.run(
+        runtime.resolve_pending_permission(prompted.session, approved=True)
+    )
+    assert resumed.session.runtime_state.get("pending_permission") is None
+
+    log_path = next((tmp_path / ".claude-code-thy" / "session-logs").glob("*.log"))
+    log_text = log_path.read_text(encoding="utf-8")
+
+    assert "交互轮 1" in log_text
+    assert "交互轮 2" not in log_text
+    assert "交互轮 1 暂停" in log_text
+    assert "LLM 轮 1.1" in log_text
+    assert "LLM 轮 1.2" in log_text
+    assert "权限请求:" in log_text
+    assert "权限结果:" in log_text
+    assert "工具调用" in log_text
+    assert "rm helloworld.py" in log_text
+    assert "文件已删除。" in log_text

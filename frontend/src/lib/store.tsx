@@ -19,8 +19,9 @@ import {
   getSessionTools,
   getTranscript,
   listSessions,
-  resolvePendingPermission as resolvePendingPermissionApi,
   streamChat,
+  streamResolvePendingPermission,
+  type ChatSSEEvent,
 } from "./api";
 import type {
   McpSnapshotDTO,
@@ -214,6 +215,58 @@ export function AppProvider({ children }: { children: ReactNode }) {
     await hydrateSession(sessionId);
   }, [hydrateSession]);
 
+  const consumeTurnStream = useCallback(async (
+    events: AsyncIterable<ChatSSEEvent>,
+    {
+      errorPrefix,
+      onError,
+    }: {
+      errorPrefix: string;
+      onError?: () => void;
+    },
+  ) => {
+    for await (const event of events) {
+      if (event.event === "tool_event") {
+        setLiveToolEvents((prev) => [...prev, event.data as SSEToolEventDTO]);
+        continue;
+      }
+      if (event.event === "assistant_delta") {
+        const delta = (event.data as SSEAssistantDeltaEventDTO).text || "";
+        if (delta) {
+          setLiveAssistantText((prev) => prev + delta);
+        }
+        continue;
+      }
+      if (event.event === "message") {
+        const message = (event.data as { message: MessageDTO }).message;
+        setMessages((prev) => mergeIncomingMessage(prev, message));
+        if (message.role === "assistant") {
+          setLiveAssistantText("");
+        }
+        continue;
+      }
+      if (event.event === "done") {
+        const turn = (event.data as { turn: { session: SessionDetailDTO; pending_permission?: PendingPermissionDTO | null } }).turn;
+        setCurrentSession(turn.session);
+        setPendingPermission(turn.pending_permission ?? null);
+        setLiveAssistantText("");
+        setLiveToolEvents([]);
+        await refreshPanels(turn.session.session_id);
+        await refreshSessions();
+        return;
+      }
+      if (event.event === "error") {
+        const error = (event.data as { error: string }).error || "Unknown error";
+        setMessages((prev) => [...prev, buildLocalAssistantMessage(`${errorPrefix}：${error}`, prev.length)]);
+        setErrorText(error);
+        setLiveAssistantText("");
+        setLiveToolEvents([]);
+        onError?.();
+        return;
+      }
+    }
+  }, [refreshPanels, refreshSessions]);
+
   const sendMessage = useCallback(async (prompt: string) => {
     const trimmed = prompt.trim();
     if (!trimmed || !currentSessionId || isStreaming || isResolvingPermission) {
@@ -228,45 +281,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setLiveToolEvents([]);
 
     try {
-      for await (const event of streamChat(currentSessionId, trimmed)) {
-        if (event.event === "tool_event") {
-          setLiveToolEvents((prev) => [...prev, event.data as SSEToolEventDTO]);
-          continue;
-        }
-        if (event.event === "assistant_delta") {
-          const delta = (event.data as SSEAssistantDeltaEventDTO).text || "";
-          if (delta) {
-            setLiveAssistantText((prev) => prev + delta);
-          }
-          continue;
-        }
-        if (event.event === "message") {
-          const message = (event.data as { message: MessageDTO }).message;
-          setMessages((prev) => mergeIncomingMessage(prev, message));
-          if (message.role === "assistant") {
-            setLiveAssistantText("");
-          }
-          continue;
-        }
-        if (event.event === "done") {
-          const turn = (event.data as { turn: { session: SessionDetailDTO; new_messages: MessageDTO[]; pending_permission?: PendingPermissionDTO | null } }).turn;
-          setCurrentSession(turn.session);
-          setPendingPermission(turn.pending_permission ?? null);
-          setLiveAssistantText("");
-          setLiveToolEvents([]);
-          await refreshPanels(turn.session.session_id);
-          await refreshSessions();
-          return;
-        }
-        if (event.event === "error") {
-          const error = (event.data as { error: string }).error || "Unknown error";
-          setMessages((prev) => [...prev, buildLocalAssistantMessage(`API 调用失败：${error}`, prev.length)]);
-          setErrorText(error);
-          setLiveAssistantText("");
-          setLiveToolEvents([]);
-          return;
-        }
-      }
+      await consumeTurnStream(streamChat(currentSessionId, trimmed), { errorPrefix: "API 调用失败" });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setMessages((prev) => [...prev, buildLocalAssistantMessage(`连接失败：${message}`, prev.length)]);
@@ -289,29 +304,59 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!currentSessionId || !pendingPermission || isResolvingPermission) {
       return;
     }
+    const pendingSnapshot = pendingPermission;
     clearError();
     setIsResolvingPermission(true);
+    setIsStreaming(true);
     try {
-      const turn = await resolvePendingPermissionApi(currentSessionId, approved);
-      setCurrentSession(turn.session);
-      setMessages((prev) => [...prev, ...turn.new_messages]);
-      setPendingPermission(turn.pending_permission ?? null);
-      await refreshPanels(turn.session.session_id);
-      await refreshSessions();
+      setPendingPermission(null);
+      setCurrentSession((prev) => (
+        prev
+          ? {
+              ...prev,
+              pending_permission: null,
+            }
+          : prev
+      ));
+      setLiveAssistantText("");
+      setLiveToolEvents([]);
+      await consumeTurnStream(streamResolvePendingPermission(currentSessionId, approved), {
+        errorPrefix: "权限处理失败",
+        onError: () => {
+          setPendingPermission(pendingSnapshot);
+          setCurrentSession((prev) => (
+            prev
+              ? {
+                  ...prev,
+                  pending_permission: pendingSnapshot,
+                }
+              : prev
+          ));
+        },
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      setPendingPermission(pendingSnapshot);
+      setCurrentSession((prev) => (
+        prev
+          ? {
+              ...prev,
+              pending_permission: pendingSnapshot,
+            }
+          : prev
+      ));
       setErrorText(message);
       setMessages((prev) => [...prev, buildLocalAssistantMessage(`权限处理失败：${message}`, prev.length)]);
     } finally {
+      setIsStreaming(false);
       setIsResolvingPermission(false);
     }
   }, [
     clearError,
+    consumeTurnStream,
     currentSessionId,
     isResolvingPermission,
     pendingPermission,
-    refreshPanels,
-    refreshSessions,
   ]);
 
   useEffect(() => {

@@ -54,6 +54,37 @@ class ConversationRuntime:
         if not prompt:
             return CommandOutcome(session=session)
 
+        pending = get_pending_permission(session)
+        if pending is not None:
+            resolution = self._parse_permission_response(prompt)
+            request = pending_request(session)
+            if resolution is None:
+                text = (
+                    request.prompt_text()
+                    if request is not None
+                    else "当前有一个待确认的权限请求，请回复 `yes` 或 `no`。"
+                )
+                session.add_message(
+                    "assistant",
+                    text,
+                    metadata={
+                        "ui_kind": "permission_prompt",
+                        **(
+                            {"pending_permission": request.to_dict()}
+                            if request is not None
+                            else {}
+                        ),
+                    },
+                )
+                self.session_store.save(session)
+                return CommandOutcome(session=session, message_added=True)
+            return await self.resolve_pending_permission(
+                session,
+                approved=resolution,
+                tool_event_handler=tool_event_handler,
+                _skip_turn_logging=True,
+            )
+
         log_session = session
         log_manager = self._ensure_session_logging(log_session, prompt=prompt)
         if log_manager is not None:
@@ -68,37 +99,6 @@ class ConversationRuntime:
         ended_with_error = False
 
         try:
-            pending = get_pending_permission(session)
-            if pending is not None:
-                resolution = self._parse_permission_response(prompt)
-                request = pending_request(session)
-                if resolution is None:
-                    text = (
-                        request.prompt_text()
-                        if request is not None
-                        else "当前有一个待确认的权限请求，请回复 `yes` 或 `no`。"
-                    )
-                    session.add_message(
-                        "assistant",
-                        text,
-                        metadata={
-                            "ui_kind": "permission_prompt",
-                            **(
-                                {"pending_permission": request.to_dict()}
-                                if request is not None
-                                else {}
-                            ),
-                        },
-                    )
-                    self.session_store.save(session)
-                    return CommandOutcome(session=session, message_added=True)
-                return await self.resolve_pending_permission(
-                    session,
-                    approved=resolution,
-                    tool_event_handler=wrapped_tool_event_handler,
-                    _skip_turn_logging=True,
-                )
-
             if prompt.startswith("/"):
                 outcome = self.command_processor.process(
                     session,
@@ -154,6 +154,7 @@ class ConversationRuntime:
                     ended_with_error=ended_with_error,
                     ended_with_pending_permission=get_pending_permission(log_session) is not None,
                 )
+                self.session_store.save(log_session)
 
     async def handle_stream(
         self,
@@ -172,6 +173,16 @@ class ConversationRuntime:
         initial_message_count = len(session.messages)
         pending = get_pending_permission(session)
         if pending is not None:
+            resolution = self._parse_permission_response(prompt)
+            if resolution is not None:
+                return await self.resolve_pending_permission(
+                    session,
+                    approved=resolution,
+                    tool_event_handler=tool_event_handler,
+                    text_delta_handler=text_delta_handler,
+                    message_added_handler=message_added_handler,
+                    _skip_turn_logging=True,
+                )
             outcome = await self.handle(
                 session,
                 prompt,
@@ -281,6 +292,7 @@ class ConversationRuntime:
                     ended_with_error=ended_with_error,
                     ended_with_pending_permission=get_pending_permission(log_session) is not None,
                 )
+                self.session_store.save(log_session)
 
     async def resolve_pending_permission(
         self,
@@ -288,24 +300,30 @@ class ConversationRuntime:
         *,
         approved: bool,
         tool_event_handler: ToolEventHandler | None = None,
+        text_delta_handler=None,
+        message_added_handler=None,
         _skip_turn_logging: bool = False,
     ) -> CommandOutcome:
         """显式恢复当前会话中挂起的权限确认，供 Web API 等非文本入口复用。"""
         pending = get_pending_permission(session)
         if pending is None:
             return CommandOutcome(session=session)
+        streaming = text_delta_handler is not None or message_added_handler is not None
+        continuing_turn = bool(session.runtime_state.get("session_log_current_turn_open"))
 
         log_manager = self._ensure_session_logging(
             session,
             prompt="批准待确认权限请求" if approved else "拒绝待确认权限请求",
         )
-        if log_manager is not None and not _skip_turn_logging:
+        owns_turn_logging = False
+        if log_manager is not None and not _skip_turn_logging and not continuing_turn:
             log_manager.start_turn(
                 session,
                 prompt="批准待确认权限请求" if approved else "拒绝待确认权限请求",
                 input_kind="permission_resolution",
-                stream=False,
+                stream=streaming,
             )
+            owns_turn_logging = True
         start_message_count = len(session.messages)
         ended_with_error = False
         wrapped_tool_event_handler = self._compose_tool_event_handler(session, tool_event_handler)
@@ -326,7 +344,20 @@ class ConversationRuntime:
                     event_handler=wrapped_tool_event_handler,
                 )
                 if not outcome.suppress_task_notifications:
+                    task_start = len(outcome.session.messages)
                     self._append_task_notifications(outcome.session)
+                    if streaming:
+                        self._emit_stream_messages(
+                            outcome.session,
+                            start_index=task_start,
+                            message_added_handler=message_added_handler,
+                        )
+                if streaming:
+                    self._emit_stream_messages(
+                        outcome.session,
+                        start_index=start_message_count,
+                        message_added_handler=message_added_handler,
+                    )
                 return outcome
             if source_type == "tool_call":
                 session = await self.query_engine.resume_pending_tool_call(
@@ -334,8 +365,17 @@ class ConversationRuntime:
                     pending,
                     approved=approved,
                     tool_event_handler=wrapped_tool_event_handler,
+                    text_delta_handler=text_delta_handler,
+                    message_added_handler=message_added_handler,
                 )
+                task_start = len(session.messages)
                 self._append_task_notifications(session)
+                if streaming:
+                    self._emit_stream_messages(
+                        session,
+                        start_index=task_start,
+                        message_added_handler=message_added_handler,
+                    )
                 return CommandOutcome(session=session, message_added=True)
             return CommandOutcome(session=session)
         except Exception as error:
@@ -344,13 +384,16 @@ class ConversationRuntime:
                 log_manager.record_runtime_error(session, stage="runtime.resolve_pending_permission", error=error)
             raise
         finally:
-            if log_manager is not None and not _skip_turn_logging:
-                log_manager.finish_turn(
-                    session,
-                    new_message_count=max(len(session.messages) - start_message_count, 0),
-                    ended_with_error=ended_with_error,
-                    ended_with_pending_permission=get_pending_permission(session) is not None,
-                )
+            if log_manager is not None and (owns_turn_logging or continuing_turn or not _skip_turn_logging):
+                pending_after = get_pending_permission(session) is not None
+                if owns_turn_logging or continuing_turn:
+                    log_manager.finish_turn(
+                        session,
+                        new_message_count=max(len(session.messages) - start_message_count, 0),
+                        ended_with_error=ended_with_error,
+                        ended_with_pending_permission=pending_after,
+                    )
+                    self.session_store.save(session)
 
     def _parse_permission_response(self, prompt: str) -> bool | None:
         """把用户输入解析成允许、拒绝或无法识别的权限回应。"""

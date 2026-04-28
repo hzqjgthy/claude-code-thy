@@ -12,6 +12,7 @@ class SessionLogRecord:
     version: int
     session_id: str
     turn_index: int
+    llm_turn_index: int
     event_index: int
     timestamp: str
     event: str
@@ -23,6 +24,7 @@ class SessionLogRecord:
             "version": self.version,
             "session_id": self.session_id,
             "turn_index": self.turn_index,
+            "llm_turn_index": self.llm_turn_index,
             "event_index": self.event_index,
             "timestamp": self.timestamp,
             "event": self.event,
@@ -38,4 +40,13 @@ class ToolCallLogContext:
     tool_name: str
     tool_use_id: str | None
     surface: str
+    llm_turn_index: int
     input_data: dict[str, object]
+
+
+@dataclass(slots=True)
+class LlmTurnLogContext:
+    """记录一次 LLM 输出轮在日志系统里的局部标识。"""
+    turn_index: int
+    llm_turn_index: int
+    provider_name: str

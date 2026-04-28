@@ -108,30 +108,16 @@ export type ChatSSEEvent =
   | { event: "done"; data: SSEDoneEventDTO }
   | { event: "error"; data: SSEErrorEventDTO };
 
-export async function* streamChat(
-  sessionId: string,
-  prompt: string
-): AsyncGenerator<ChatSSEEvent> {
-  const response = await fetch(`${API_BASE}/chat`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      session_id: sessionId,
-      prompt,
-      stream: true,
-    }),
-  });
-
+async function* streamSse(url: string, init: RequestInit): AsyncGenerator<ChatSSEEvent> {
+  const response = await fetch(url, init);
   if (!response.ok) {
     const text = await response.text();
     throw new Error(text || `HTTP ${response.status}`);
   }
-
   const reader = response.body?.getReader();
   if (!reader) {
     throw new Error("No response body");
   }
-
   const decoder = new TextDecoder();
   let buffer = "";
   let currentEvent = "message";
@@ -169,4 +155,33 @@ export async function* streamChat(
       }
     }
   }
+}
+
+export async function* streamChat(
+  sessionId: string,
+  prompt: string
+): AsyncGenerator<ChatSSEEvent> {
+  yield* streamSse(`${API_BASE}/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      session_id: sessionId,
+      prompt,
+      stream: true,
+    }),
+  });
+}
+
+export async function* streamResolvePendingPermission(
+  sessionId: string,
+  approved: boolean
+): AsyncGenerator<ChatSSEEvent> {
+  yield* streamSse(
+    `${API_BASE}/sessions/${encodeURIComponent(sessionId)}/pending-permission/resolve?stream=true`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ approved }),
+    }
+  );
 }

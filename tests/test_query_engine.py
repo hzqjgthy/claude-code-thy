@@ -186,6 +186,68 @@ def test_query_engine_stream_submit_emits_user_message_before_assistant(tmp_path
     assert emitted_roles[:2] == ["user", "assistant"]
 
 
+def test_resume_pending_tool_call_emits_stream_events_when_handlers_provided(tmp_path):
+    """测试权限恢复时只要传入流式 handlers，就会继续输出 assistant_delta 和消息事件。"""
+    store = SessionStore(root_dir=tmp_path / "sessions")
+    (tmp_path / "README.md").write_text("stream resume content", encoding="utf-8")
+    session = store.create(cwd=str(tmp_path), model="glm-4.5", provider_name="streaming-resume-provider")
+    captured_deltas: list[str] = []
+    emitted_roles: list[str] = []
+
+    class StreamingResumeProvider(Provider):
+        """工具结果写回后继续走流式 assistant 输出。"""
+        name = "streaming-resume-provider"
+
+        async def complete(self, session, tools, prompt=None):
+            _ = (session, tools, prompt)
+            return ProviderResponse(display_text="恢复完成")
+
+        async def stream_complete(self, session, tools, prompt=None):
+            _ = (tools, prompt)
+            assert any(message.role == "tool" for message in session.messages)
+            yield ProviderStreamEvent(type="text_delta", text="恢")
+            yield ProviderStreamEvent(type="text_delta", text="复")
+            yield ProviderStreamEvent(
+                type="response",
+                response=ProviderResponse(
+                    display_text="恢复完成",
+                    content_blocks=[{"type": "text", "text": "恢复完成"}],
+                ),
+            )
+
+    engine = QueryEngine(
+        provider=StreamingResumeProvider(),
+        session_store=store,
+        tool_runtime=ToolRuntime(build_builtin_tools()),
+    )
+
+    def on_message_added(index, message):
+        _ = index
+        emitted_roles.append(message.role)
+
+    updated = asyncio.run(
+        engine.resume_pending_tool_call(
+            session,
+            {
+                "tool_name": "read",
+                "tool_use_id": "toolu_resume_stream",
+                "input_data": {"file_path": "README.md", "offset": 1, "limit": 20},
+                "original_input": {"file_path": "README.md", "offset": 1, "limit": 20},
+                "request": {},
+            },
+            approved=True,
+            text_delta_handler=captured_deltas.append,
+            message_added_handler=on_message_added,
+        )
+    )
+
+    assert captured_deltas == ["恢", "复"]
+    assert emitted_roles == ["tool", "assistant"]
+    assert [message.role for message in updated.messages] == ["tool", "assistant"]
+    assert "stream resume content" in updated.messages[0].text
+    assert updated.messages[-1].text == "恢复完成"
+
+
 def test_query_engine_warms_dynamic_mcp_tools_before_provider_call(tmp_path):
     """测试主链对话在调模型前会先把动态 MCP 工具预热进缓存。"""
     store = SessionStore(root_dir=tmp_path / "sessions")

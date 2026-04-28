@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 
 from ..deps import get_context, load_session_or_404
 from ..presenters import (
@@ -27,6 +28,7 @@ from ..schemas import (
     TaskDTO,
     ToolsSnapshotDTO,
 )
+from ..turn_stream import stream_turn_buffered, stream_turn_live
 
 router = APIRouter(tags=["sessions"])
 
@@ -87,10 +89,21 @@ async def get_pending_permission(session_id: str, context=Depends(get_context)):
 async def resolve_pending_permission(
     session_id: str,
     request: PermissionResolveRequest,
+    stream: bool = Query(False, description="Whether to stream the resumed turn over SSE."),
     context=Depends(get_context),
 ):
     """显式批准或拒绝当前挂起的权限请求，避免 Web 前端走 `yes/no` 文本分支。"""
     session = load_session_or_404(context, session_id)
+    if stream:
+        return StreamingResponse(
+            (
+                _stream_permission_resolution_live(context.runtime, session, request.approved)
+                if context.config.web_enable_stream_output
+                else _stream_permission_resolution_buffered(context.runtime, session, request.approved)
+            ),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
     start_index = len(session.messages)
     outcome = await context.runtime.resolve_pending_permission(
         session,
@@ -164,3 +177,29 @@ async def get_session_mcp(
         skill_commands=services.mcp_manager.cached_skill_commands(),
         resources_by_server=services.mcp_manager.cached_resources(),
     )
+
+
+async def _stream_permission_resolution_live(runtime, session, approved: bool):
+    """把一次权限确认恢复过程转换成带增量文本的 SSE 事件流。"""
+    async for chunk in stream_turn_live(
+        lambda **handlers: runtime.resolve_pending_permission(
+            session,
+            approved=approved,
+            **handlers,
+        ),
+        session,
+    ):
+        yield chunk
+
+
+async def _stream_permission_resolution_buffered(runtime, session, approved: bool):
+    """保留旧的整轮级权限恢复行为，但统一通过 SSE 一次性发回结果。"""
+    async for chunk in stream_turn_buffered(
+        lambda **handlers: runtime.resolve_pending_permission(
+            session,
+            approved=approved,
+            **handlers,
+        ),
+        session,
+    ):
+        yield chunk
