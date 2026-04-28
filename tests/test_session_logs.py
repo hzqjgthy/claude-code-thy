@@ -62,6 +62,7 @@ def test_conversation_runtime_writes_dual_session_logs(tmp_path):
     assert "交互轮 1" in log_text
     assert "LLM 轮 1.1" in log_text
     assert "[LLM 输出]" in log_text
+    assert "工具调用数: 0" in log_text
     assert "这是 assistant 的原文输出，不应该被摘要。" in log_text
 
     jsonl_records = [
@@ -129,6 +130,7 @@ def test_session_log_manager_truncates_long_tool_output_only_in_human_log(tmp_pa
     log_text = log_path.read_text(encoding="utf-8")
     assert "LLM 轮 1.1" in log_text
     assert "[工具调用]" in log_text
+    assert "工具调用数: 1" in log_text
     assert "HEAD-1234567890" in log_text
     assert "TAIL-0987654321" in log_text
     assert "中间已省略" in log_text
@@ -290,11 +292,71 @@ def test_permission_resume_keeps_same_interaction_turn_and_groups_tool_under_sam
 
     assert "交互轮 1" in log_text
     assert "交互轮 2" not in log_text
-    assert "交互轮 1 暂停" in log_text
     assert "LLM 轮 1.1" in log_text
     assert "LLM 轮 1.2" in log_text
+    assert "交互轮暂停:" in log_text
     assert "权限请求:" in log_text
     assert "权限结果:" in log_text
     assert "工具调用" in log_text
     assert "rm helloworld.py" in log_text
     assert "文件已删除。" in log_text
+
+
+def test_llm_turn_renders_success_with_tool_error_and_counts(tmp_path):
+    """测试 LLM 轮在工具部分失败时，会渲染混合状态和统计信息。"""
+    settings = SessionLogSettings(output_dir="session-logs")
+    manager = SessionLogManager(tmp_path, settings)
+    session = SessionTranscript(session_id="s1", cwd=str(tmp_path), model="glm-4.5", provider_name="demo")
+
+    manager.record_session_started(session, provider_name="demo", model="glm-4.5")
+    manager.start_turn(session, prompt="测试混合工具结果", input_kind="chat", stream=False)
+    manager.start_llm_turn(
+        session,
+        provider_name="demo",
+        request_preview={
+            "provider": "demo",
+            "endpoint": "https://example.com",
+            "json_body": {"model": "glm-4.5", "tools": []},
+        },
+        rendered_prompt=_rendered_prompt(),
+    )
+    first = manager.begin_tool_call(
+        session,
+        tool_name="bash",
+        tool_use_id="toolu_fail",
+        surface="model",
+        input_data={"command": "rm bad.py"},
+    )
+    manager.finish_tool_error(
+        session,
+        first,
+        error=RuntimeError("boom"),
+        output="工具 `bash` 执行失败：boom",
+    )
+    second = manager.begin_tool_call(
+        session,
+        tool_name="write",
+        tool_use_id="toolu_ok",
+        surface="model",
+        input_data={"file_path": "ok.py"},
+    )
+    manager.finish_tool_call(
+        session,
+        second,
+        ToolResult(
+            tool_name="write",
+            ok=True,
+            summary="创建文件：ok.py",
+            display_name="write",
+            output="Wrote ok.py",
+        ),
+    )
+    manager.finish_llm_turn(session, status="success")
+    manager.finish_turn(session, new_message_count=0, ended_with_error=False, ended_with_pending_permission=False)
+
+    log_path = next((tmp_path / "session-logs").glob("*.log"))
+    log_text = log_path.read_text(encoding="utf-8")
+
+    assert "结束状态: success_with_tool_error" in log_text
+    assert "工具调用数: 2" in log_text
+    assert "工具失败数: 1" in log_text

@@ -80,23 +80,14 @@ def render_command_parsed_block(data: dict[str, object]) -> str:
     return "\n".join(lines)
 
 
-def render_turn_paused_block(turn_index: int, data: dict[str, object]) -> str:
-    """渲染交互轮因权限确认而暂停的提示块。"""
-    lines = [
-        f"交互轮 {turn_index} 暂停",
-        f"原因: {str(data.get('reason', 'pending_permission'))}",
-        EQ_LINE,
-        "",
-    ]
-    return "\n".join(lines)
-
-
 def render_turn_finished_block(turn_index: int, data: dict[str, object]) -> str:
     """渲染交互轮结束块。"""
     lines = [
         f"交互轮 {turn_index} 结束",
         f"结束状态: {str(data.get('status', 'success'))}",
-        f"新增消息数: {int(data.get('new_message_count', 0) or 0)}",
+        f"新增 transcript 消息数: {int(data.get('new_message_count', 0) or 0)}",
+        f"LLM 轮数: {int(data.get('llm_turn_count', 0) or 0)}",
+        f"工具调用数: {int(data.get('tool_call_count', 0) or 0)}",
         EQ_LINE,
         "",
     ]
@@ -118,17 +109,23 @@ def render_llm_turn_block(llm_turn: dict[str, object], settings: SessionLogSetti
     """按“交互轮 -> LLM 轮 -> 工具调用”的层级渲染一个完整 LLM 块。"""
     interaction_turn_index = int(llm_turn.get("interaction_turn_index", 0) or 0)
     llm_turn_index = int(llm_turn.get("llm_turn_index", 0) or 0)
-    status = str(llm_turn.get("status", "success") or "success")
+    status = _resolved_llm_status(llm_turn)
     request_summary = llm_turn.get("request_preview_summary")
     assistant_text = str(llm_turn.get("assistant_text", "")).strip()
     tool_calls = llm_turn.get("tool_calls")
     error = llm_turn.get("error")
+    tool_call_count = int(llm_turn.get("tool_call_count", 0) or 0)
+    tool_error_count = int(llm_turn.get("tool_error_count", 0) or 0)
+    permission_request_count = int(llm_turn.get("permission_request_count", 0) or 0)
 
     lines = [
         DASH_LINE,
         f"LLM 轮 {interaction_turn_index}.{llm_turn_index}",
         f"开始时间: {str(llm_turn.get('started_at_local_readable', ''))}",
         f"结束状态: {status}",
+        f"工具调用数: {tool_call_count}",
+        f"工具失败数: {tool_error_count}",
+        f"权限请求数: {permission_request_count}",
     ]
 
     if isinstance(request_summary, dict):
@@ -198,6 +195,13 @@ def _render_tool_call_block(tool: dict[str, object], settings: SessionLogSetting
                 f"   - 原因: {str(permission_requested.get('reason', ''))}",
             ]
         )
+        if bool(permission_requested.get("paused")):
+            lines.extend(
+                [
+                    "   交互轮暂停:",
+                    f"   - 原因: {str(permission_requested.get('pause_reason', 'pending_permission'))}",
+                ]
+            )
 
     permission_resolved = tool.get("permission_resolved")
     if isinstance(permission_resolved, dict):
@@ -260,3 +264,14 @@ def _truncate_tool_output(text: str, settings: SessionLogSettings) -> tuple[str,
     if tail:
         return f"{middle}\n\n{tail}", True
     return middle, True
+
+
+def _resolved_llm_status(llm_turn: dict[str, object]) -> str:
+    """根据聚合统计给 LLM 轮渲染更贴近真实过程的状态。"""
+    base_status = str(llm_turn.get("status", "success") or "success")
+    if base_status == "error":
+        return "error"
+    tool_error_count = int(llm_turn.get("tool_error_count", 0) or 0)
+    if tool_error_count > 0:
+        return "success_with_tool_error"
+    return base_status

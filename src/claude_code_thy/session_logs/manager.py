@@ -16,7 +16,6 @@ from .formatters import (
     render_session_resumed_block,
     render_session_started_block,
     render_turn_finished_block,
-    render_turn_paused_block,
     render_turn_started_block,
 )
 from .jsonl_writer import JsonlWriter
@@ -154,6 +153,8 @@ class SessionLogManager:
             "input_kind": input_kind,
             "stream": stream,
             "message_count_start": len(session.messages),
+            "llm_turn_count": 0,
+            "tool_call_count": 0,
             "started_at_utc": now,
             "started_at_local_readable": format_local_time(now),
             "open": True,
@@ -192,7 +193,22 @@ class SessionLogManager:
             turn_index=int(state.get("turn_index", 0) or 0),
             llm_turn_index=self.current_llm_turn_index(session),
         )
-        self._append_human(session, render_turn_paused_block(int(state.get("turn_index", 0) or 0), data))
+        llm_state = self._current_llm_turn_state(session)
+        if llm_state is None:
+            return
+        tool_calls = llm_state.get("tool_calls")
+        if not isinstance(tool_calls, list) or not tool_calls:
+            return
+        latest = tool_calls[-1]
+        if not isinstance(latest, dict):
+            return
+        permission_requested = latest.get("permission_requested")
+        if not isinstance(permission_requested, dict):
+            permission_requested = {}
+        permission_requested["paused"] = True
+        permission_requested["pause_reason"] = reason
+        latest["permission_requested"] = permission_requested
+        session.runtime_state["session_log_current_llm_turn_state"] = llm_state
 
     def finish_turn(
         self,
@@ -226,6 +242,8 @@ class SessionLogManager:
             "ended_with_error": resolved_ended_with_error,
             "ended_with_pending_permission": False,
             "status": status,
+            "llm_turn_count": int(state.get("llm_turn_count", 0) or 0) if state is not None else 0,
+            "tool_call_count": int(state.get("tool_call_count", 0) or 0) if state is not None else 0,
         }
         self._record(session, "turn_finished", data, turn_index=turn_index, llm_turn_index=0)
         self._append_human(session, render_turn_finished_block(turn_index, data))
@@ -274,8 +292,15 @@ class SessionLogManager:
             ),
             "assistant_text": "",
             "tool_calls": [],
+            "tool_call_count": 0,
+            "tool_error_count": 0,
+            "permission_request_count": 0,
             "status": "running",
         }
+        turn_state = self._current_turn_state(session)
+        if turn_state is not None:
+            turn_state["llm_turn_count"] = int(turn_state.get("llm_turn_count", 0) or 0) + 1
+            session.runtime_state["session_log_current_turn_state"] = turn_state
         session.runtime_state["session_log_current_llm_turn_ordinal"] = llm_turn_index
         session.runtime_state["session_log_current_llm_turn_index"] = llm_turn_index
         session.runtime_state["session_log_current_llm_tool_call_ordinal"] = 0
@@ -757,6 +782,7 @@ class SessionLogManager:
         tool_calls = llm_state.get("tool_calls")
         if not isinstance(tool_calls, list):
             tool_calls = []
+        llm_state["tool_call_count"] = int(llm_state.get("tool_call_count", 0) or 0) + 1
         tool_calls.append(
             {
                 "call_ref": context.call_ref,
@@ -769,6 +795,10 @@ class SessionLogManager:
         )
         llm_state["tool_calls"] = tool_calls
         session.runtime_state["session_log_current_llm_turn_state"] = llm_state
+        turn_state = self._current_turn_state(session)
+        if turn_state is not None:
+            turn_state["tool_call_count"] = int(turn_state.get("tool_call_count", 0) or 0) + 1
+            session.runtime_state["session_log_current_turn_state"] = turn_state
 
     def _human_llm_set_tool_result(self, session: SessionTranscript, call_ref: str, result: dict[str, object]) -> None:
         """把工具结果挂到当前 LLM 轮的对应工具项上。"""
@@ -776,6 +806,10 @@ class SessionLogManager:
         if tool is None:
             return
         tool["result"] = result
+        llm_state = self._current_llm_turn_state(session)
+        if llm_state is not None and not bool(result.get("ok", True)):
+            llm_state["tool_error_count"] = int(llm_state.get("tool_error_count", 0) or 0) + 1
+            session.runtime_state["session_log_current_llm_turn_state"] = llm_state
 
     def _human_llm_set_permission_requested(
         self,
@@ -792,6 +826,10 @@ class SessionLogManager:
             "reason": reason,
             "request": request_data,
         }
+        llm_state = self._current_llm_turn_state(session)
+        if llm_state is not None:
+            llm_state["permission_request_count"] = int(llm_state.get("permission_request_count", 0) or 0) + 1
+            session.runtime_state["session_log_current_llm_turn_state"] = llm_state
 
     def _human_llm_set_permission_resolved(
         self,
