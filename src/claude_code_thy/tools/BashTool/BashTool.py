@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 from queue import Empty, Queue
 
+from claude_code_thy.shells import build_bash_command
 from claude_code_thy.tools.base import PermissionRequiredError, PermissionResult, Tool, ToolContext, ToolError, ToolResult
 from claude_code_thy.tools.shared.common import (
     MAX_RESULT_PREVIEW_CHARS,
@@ -268,34 +269,37 @@ class BashTool(Tool):
         if run_in_background:
             if context.services is None:
                 raise ToolError("Background task manager is unavailable")
-            task = context.services.task_manager.start_command(
-                command=command,
-                cwd=context.cwd,
-                description=display_summary,
-                launch_argv=(
-                    sandbox_spec.argv if sandbox_spec is not None else ["/bin/bash", "-lc", command]
-                ),
-                launch_env=sandbox_spec.env if sandbox_spec is not None else None,
-                task_kind="bash",
-                sandbox_mode=sandbox_decision.mode if sandbox_decision is not None else None,
-                sandbox_applied=sandbox_spec.sandbox_applied if sandbox_spec is not None else None,
-                sandbox_reason=(
-                    sandbox_spec.reason
-                    if sandbox_spec is not None
-                    else (sandbox_decision.reason if sandbox_decision is not None else "")
-                ),
-                cleanup_path=sandbox_spec.cleanup_path if sandbox_spec is not None else None,
-                session_id=context.session_id,
-                metadata={
-                    "checked_paths": list(assessment.checked_paths),
-                    "is_read_only": assessment.is_read_only,
-                    **(
-                        {"sed_edit_file": assessment.sed_edit.file_path}
-                        if assessment.sed_edit is not None
-                        else {}
+            try:
+                task = context.services.task_manager.start_command(
+                    command=command,
+                    cwd=context.cwd,
+                    description=display_summary,
+                    launch_argv=(
+                        sandbox_spec.argv if sandbox_spec is not None else build_bash_command(command)
                     ),
-                },
-            )
+                    launch_env=sandbox_spec.env if sandbox_spec is not None else None,
+                    task_kind="bash",
+                    sandbox_mode=sandbox_decision.mode if sandbox_decision is not None else None,
+                    sandbox_applied=sandbox_spec.sandbox_applied if sandbox_spec is not None else None,
+                    sandbox_reason=(
+                        sandbox_spec.reason
+                        if sandbox_spec is not None
+                        else (sandbox_decision.reason if sandbox_decision is not None else "")
+                    ),
+                    cleanup_path=sandbox_spec.cleanup_path if sandbox_spec is not None else None,
+                    session_id=context.session_id,
+                    metadata={
+                        "checked_paths": list(assessment.checked_paths),
+                        "is_read_only": assessment.is_read_only,
+                        **(
+                            {"sed_edit_file": assessment.sed_edit.file_path}
+                            if assessment.sed_edit is not None
+                            else {}
+                        ),
+                    },
+                )
+            except OSError as error:
+                raise ToolError(f"无法启动后台命令：{error}") from error
             summary = f"后台执行命令：{display_summary}"
             output = f"后台任务 {task.task_id} 已启动，输出写入 {task.output_path}"
             return ToolResult(
@@ -354,7 +358,7 @@ class BashTool(Tool):
         start = time.time()
         context.emit(self.name, "running", f"运行命令：{display_summary}")
         launch_argv = (
-            sandbox_spec.argv if sandbox_spec is not None else ["/bin/bash", "-lc", command]
+            sandbox_spec.argv if sandbox_spec is not None else build_bash_command(command)
         )
         launch_env = sandbox_spec.env if sandbox_spec is not None else None
         try:

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import ctypes
+from ctypes import wintypes
 import os
 import shlex
 import shutil
@@ -10,9 +12,15 @@ import time
 from pathlib import Path
 from uuid import uuid4
 
+from claude_code_thy.shells import build_bash_command
 from claude_code_thy.settings import TaskSettings
 from claude_code_thy.tasks.registry import TaskRegistry
 from claude_code_thy.tasks.types import BackgroundTask, TaskRecord, TaskStatus, TaskType, utc_now
+
+
+def _is_windows() -> bool:
+    """Return whether the current runtime uses Windows process semantics."""
+    return os.name == "nt"
 
 
 class BackgroundTaskManager:
@@ -70,16 +78,14 @@ class BackgroundTaskManager:
         )
         self.registry.save(task)
         process = subprocess.Popen(
-            [
-                "/bin/bash",
-                "-lc",
+            build_bash_command(
                 self._background_wrapper(
                     task=task,
-                    launch_argv=launch_argv or ["/bin/bash", "-lc", command],
+                    launch_argv=launch_argv or build_bash_command(command),
                     launch_env=launch_env,
                     cleanup_path=cleanup_path,
-                ),
-            ],
+                )
+            ),
             cwd=cwd,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
@@ -231,12 +237,23 @@ class BackgroundTaskManager:
         if task is None:
             return None
         if task.pid is not None and task.status == "running":
-            try:
-                os.killpg(task.pid, signal.SIGTERM)
-            except ProcessLookupError:
-                pass
-            except PermissionError:
-                pass
+            if _is_windows():
+                try:
+                    subprocess.run(
+                        ["taskkill", "/PID", str(task.pid), "/T", "/F"],
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+                except OSError:
+                    pass
+            else:
+                try:
+                    os.killpg(task.pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+                except PermissionError:
+                    pass
         task.status = "killed"
         task.finished_at = utc_now()
         self.registry.save(task)
@@ -272,6 +289,10 @@ class BackgroundTaskManager:
 
     def _pid_exists(self, pid: int) -> bool:
         """处理 `pid_exists`。"""
+        if pid <= 0:
+            return False
+        if _is_windows():
+            return self._pid_exists_windows(pid)
         try:
             os.kill(pid, 0)
         except ProcessLookupError:
@@ -279,6 +300,35 @@ class BackgroundTaskManager:
         except PermissionError:
             return True
         return True
+
+    def _pid_exists_windows(self, pid: int) -> bool:
+        """Use Win32 APIs instead of Unix signals when checking task liveness."""
+        process_query_limited_information = 0x1000
+        synchronize = 0x00100000
+        still_active = 259
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        kernel32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+        kernel32.GetExitCodeProcess.restype = wintypes.BOOL
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.restype = wintypes.BOOL
+        handle = kernel32.OpenProcess(
+            process_query_limited_information | synchronize,
+            False,
+            pid,
+        )
+        if not handle:
+            return ctypes.get_last_error() == 5
+
+        try:
+            exit_code = wintypes.DWORD()
+            ok = kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code))
+            if not ok:
+                return ctypes.get_last_error() == 5
+            return exit_code.value == still_active
+        finally:
+            kernel32.CloseHandle(handle)
 
     def _background_wrapper(
         self,

@@ -86,14 +86,17 @@ class AgentTool(Tool):
         run_in_background = bool(input_data.get("run_in_background", False))
         wait_timeout_ms = int(input_data.get("wait_timeout_ms", DEFAULT_FOREGROUND_WAIT_MS) or DEFAULT_FOREGROUND_WAIT_MS)
 
-        task = context.services.task_manager.start_local_agent(
-            prompt=prompt,
-            cwd=context.cwd,
-            model=model,
-            env=None,
-            description=description,
-            session_id=context.session_id,
-        )
+        try:
+            task = context.services.task_manager.start_local_agent(
+                prompt=prompt,
+                cwd=context.cwd,
+                model=model,
+                env=None,
+                description=description,
+                session_id=context.session_id,
+            )
+        except OSError as error:
+            raise ToolError(f"Unable to launch background agent: {error}") from error
         if run_in_background:
             return self._background_result(task.task_id, prompt, description, task.output_path, auto_backgrounded=False)
 

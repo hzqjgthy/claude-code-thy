@@ -7,6 +7,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from claude_code_thy.shells import build_bash_command
 from claude_code_thy.sandbox.policy import SandboxDecision
 from claude_code_thy.settings import SandboxSettings
 
@@ -49,7 +50,7 @@ class SandboxManager:
         profile_dir: Path | None = None,
     ) -> SandboxExecutionSpec:
         """根据沙箱决策把一条 shell 命令转换成最终可执行参数。"""
-        base_argv = ["/bin/bash", "-lc", command]
+        base_argv = build_bash_command(command)
         if not decision.sandboxed:
             return SandboxExecutionSpec(
                 argv=base_argv,
